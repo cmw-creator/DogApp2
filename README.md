@@ -59,7 +59,7 @@ java --version
 
 打开项目文件夹，在左侧选择“运行和调试”，点击Dart & Flutter，选择Flutter Edge，利用浏览器打开
 
-![1](C:\Users\97266\Desktop\人机交互\DogApp2\doc\pic\1.png)
+![一张图展示了如何在VS Code中配置Flutter开发环境](doc\pic\1.png)
 
 ### 新建项目
 `Ctrl+Shift+P` + `Flutter: New Project`
