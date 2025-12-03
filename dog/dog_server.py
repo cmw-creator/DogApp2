@@ -1,0 +1,949 @@
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import threading
+import time
+import json
+import os
+from datetime import datetime
+import logging
+from werkzeug.utils import secure_filename
+from threading import Lock
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class DogServer:
+    def __init__(self):
+        print("初始化dog服务器")
+        self.app = Flask(__name__)
+        
+        # 配置跨域请求
+        CORS(self.app)
+        
+        # 服务器配置
+        self.UPLOAD_FOLDER = 'uploads'
+        self.ASSETS_FOLDER = os.path.join('dog', 'assets')
+        self.ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
+        self.MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
+        
+        # Flask应用配置
+        self.app.config['UPLOAD_FOLDER'] = self.UPLOAD_FOLDER
+        self.app.config['ASSETS_FOLDER'] = self.ASSETS_FOLDER
+        self.app.config['MAX_CONTENT_LENGTH'] = self.MAX_FILE_SIZE
+        
+        # 创建上传目录
+        os.makedirs(self.UPLOAD_FOLDER, exist_ok=True)
+        os.makedirs(self.ASSETS_FOLDER, exist_ok=True)
+        
+        # 线程锁用于文件操作
+        self.file_lock = Lock()
+        
+        # 服务器状态和识别结果
+        self.current_status = "idle"
+        self.recognition_results = []
+        # 新增：内存中的对话历史
+        self.dialog_history = [
+            {
+                'id': 0,
+                'role': 'user',
+                'message': '你好',
+                'timestamp': "2023-10-05T14:20:00Z",
+                'type': 'none',
+            },
+            {
+                'id': 1,
+                'role': 'assistant',
+                'message': '你好！有什么我可以帮助你的吗？',
+                'timestamp': "2023-10-05T14:20:00Z",
+                'type': 'none',
+            },
+        ]
+
+        # 设置路由
+        self.setup_routes()
+    
+    def allowed_file(self, filename):
+        """检查文件扩展名是否允许[2,3]"""
+        return '.' in filename and \
+               filename.rsplit('.', 1)[1].lower() in self.ALLOWED_IMAGE_EXTENSIONS
+    
+    def save_json_data(self, data, filename):
+        """安全地保存JSON数据"""
+        try:
+            with self.file_lock:
+                with open(os.path.join(self.app.config['UPLOAD_FOLDER'], filename), 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+            return True
+        except Exception as e:
+            logger.error(f"保存JSON数据失败: {e}")
+            return False
+    
+    def load_json_data(self, filename):
+        """安全地加载JSON数据"""
+        try:
+            with self.file_lock:
+                filepath = os.path.join(self.app.config['UPLOAD_FOLDER'], filename)
+                if os.path.exists(filepath):
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+            return None
+        except Exception as e:
+            logger.error(f"加载JSON数据失败: {e}")
+            return None
+    
+    def load_assets_json(self, filename):
+        """加载assets目录下的JSON文件"""
+        try:
+            with self.file_lock:
+                filepath = os.path.join(self.ASSETS_FOLDER, filename)
+                if os.path.exists(filepath):
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+            return {}
+        except Exception as e:
+            logger.error(f"加载assets JSON数据失败: {e}")
+            return {}
+    
+    def save_assets_json(self, data, filename):
+        """保存JSON数据到assets目录"""
+        try:
+            with self.file_lock:
+                filepath = os.path.join(self.ASSETS_FOLDER, filename)
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"保存assets JSON数据失败: {e}")
+            return False
+    
+    def setup_routes(self):
+        """设置所有API路由"""
+        
+        # 根路径，返回服务器状态
+        @self.app.route('/')
+        def index():
+            return jsonify({
+                'status': 'running',
+                'service': 'Dog Control Server',
+                'timestamp': datetime.now().isoformat()
+            })
+        
+        # 状态查询路由
+        @self.app.route('/status')
+        def get_status():
+            return jsonify({
+                'status': self.current_status,
+                'timestamp': datetime.now().isoformat(),
+                'battery': {'level': 80, 'status': 'charging'},
+                'location': {'room': 'A101', 'coordinates': '10.5, 20.3'},
+                'dialog_history': self.dialog_history,
+            })
+        
+        # 识别结果查询路由
+        @self.app.route('/recognition_results')
+        def get_recognition_results():
+            return jsonify(self.recognition_results)
+        
+        # 更新识别结果路由
+        @self.app.route('/update_recognition', methods=['POST'])
+        def update_recognition():
+            data = request.json
+            result = {
+                'type': data.get('type', 'unknown'),
+                'confidence': data.get('confidence', 0),
+                'timestamp': datetime.now().isoformat(),
+                'data': data.get('data', {})
+            }
+            self.recognition_results.append(result)
+            # 只保留最近50条记录
+            if len(self.recognition_results) > 50:
+                self.recognition_results = self.recognition_results[-50:]
+            return jsonify({'message': '识别结果更新成功'})
+        
+        # 更新家庭信息路由
+        @self.app.route('/update_info', methods=['POST'])
+        def update_family_info():
+            try:
+                family_info = request.get_json()
+                if not family_info:
+                    return jsonify({'message': '未接收到有效的JSON数据'}), 400
+
+                # 验证必要字段
+                required_fields = ['address', 'members']
+                for field in required_fields:
+                    if field not in family_info:
+                        return jsonify({'message': f'缺少必要字段: {field}'}), 400
+
+                if self.save_json_data(family_info, 'family_info.json'):
+                    logger.info(f"[{datetime.now()}] 家庭信息已更新: {family_info}")
+                    return jsonify({
+                        'message': '家庭信息更新成功!', 
+                        'received_data': family_info
+                    }), 200
+                else:
+                    return jsonify({'message': '保存数据失败'}), 500
+
+            except Exception as e:
+                logger.error(f"处理家庭信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # 获取家庭信息路由
+        @self.app.route('/get_family_info', methods=['GET'])
+        def get_family_info():
+            try:
+                family_info = self.load_assets_json('family_info.json')
+                if family_info:
+                    return jsonify(family_info), 200
+                else:
+                    return jsonify({'message': '未找到家庭信息'}), 404
+            except Exception as e:
+                logger.error(f"获取家庭信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # ========== 问答数据管理 API (记忆库) ==========
+        @self.app.route('/get_family_questions', methods=['GET'])
+        def get_family_questions():
+            """获取所有问答数据"""
+            try:
+                family_info = self.load_assets_json('family_info.json')
+                questions = family_info.get('questions', [])
+                return jsonify(questions), 200
+            except Exception as e:
+                logger.error(f"获取问答数据时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        @self.app.route('/update_family_question', methods=['POST'])
+        def update_family_question():
+            """更新或添加问答数据"""
+            try:
+                data = request.get_json()
+                if not data:
+                    return jsonify({'message': '未接收到有效数据'}), 400
+                
+                question_id = data.get('question_id')  # 可以是索引或None（新增）
+                question_text = data.get('question', '')
+                answer_text = data.get('answer', '')
+                command = data.get('command', '')
+                audio_file = data.get('audio_file', '')
+                
+                if not question_text or not answer_text:
+                    return jsonify({'message': '问题和答案不能为空'}), 400
+                
+                # 加载现有数据
+                family_info = self.load_assets_json('family_info.json')
+                if 'questions' not in family_info:
+                    family_info['questions'] = []
+                
+                # 创建新的问答对象
+                new_question = {
+                    'question': question_text,
+                    'answer': answer_text,
+                    'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'audio_file': audio_file or '',
+                    'command': command or ''
+                }
+                
+                # 如果有question_id，更新现有问题；否则添加新问题
+                if question_id is not None and isinstance(question_id, int) and 0 <= question_id < len(family_info['questions']):
+                    family_info['questions'][question_id] = new_question
+                else:
+                    family_info['questions'].append(new_question)
+                
+                if self.save_assets_json(family_info, 'family_info.json'):
+                    logger.info(f"[{datetime.now()}] 问答数据已更新")
+                    return jsonify({'message': '问答数据更新成功', 'question_id': len(family_info['questions']) - 1}), 200
+                else:
+                    return jsonify({'message': '保存失败'}), 500
+                    
+            except Exception as e:
+                logger.error(f"更新问答数据时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        @self.app.route('/delete_family_question', methods=['POST'])
+        def delete_family_question():
+            """删除问答数据"""
+            try:
+                data = request.get_json()
+                question_id = data.get('question_id')
+                
+                if question_id is None:
+                    return jsonify({'message': '缺少question_id字段'}), 400
+                
+                family_info = self.load_assets_json('family_info.json')
+                if 'questions' not in family_info:
+                    return jsonify({'message': '未找到问答数据'}), 404
+                
+                if isinstance(question_id, int) and 0 <= question_id < len(family_info['questions']):
+                    del family_info['questions'][question_id]
+                    if self.save_assets_json(family_info, 'family_info.json'):
+                        return jsonify({'message': '删除成功'}), 200
+                    else:
+                        return jsonify({'message': '保存失败'}), 500
+                else:
+                    return jsonify({'message': '无效的question_id'}), 400
+                    
+            except Exception as e:
+                logger.error(f"删除问答数据时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # 图片上传路由
+        @self.app.route('/upload_pic', methods=['POST'])
+        def upload_picture():
+            try:
+                if 'file' not in request.files:
+                    return jsonify({'message': '请求中未包含文件'}), 400
+
+                file = request.files['file']
+                if file.filename == '':
+                    return jsonify({'message': '未选择文件'}), 400
+
+                if file and self.allowed_file(file.filename):
+                    # 生成安全文件名
+                    filename = secure_filename(file.filename)
+                    # 添加时间戳避免重名
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    name, ext = os.path.splitext(filename)
+                    filename = f"{name}_{timestamp}{ext}"
+                    
+                    save_path = os.path.join(self.app.config['UPLOAD_FOLDER'], filename)
+                    file.save(save_path)
+
+                    # 记录上传信息
+                    upload_info = {
+                        'filename': filename,
+                        'original_name': file.filename,
+                        'upload_time': datetime.now().isoformat(),
+                        'size': os.path.getsize(save_path)
+                    }
+                    
+                    # 保存上传记录
+                    uploads = self.load_json_data('uploads.json') or []
+                    uploads.append(upload_info)
+                    self.save_json_data(uploads, 'uploads.json')
+
+                    logger.info(f"[{datetime.now()}] 图片已保存: {save_path}")
+                    return jsonify({
+                        'message': '文件上传成功!', 
+                        'file_path': filename,
+                        'info': upload_info
+                    }), 200
+                else:
+                    return jsonify({'message': '不支持的文件类型'}), 400
+
+            except Exception as e:
+                logger.error(f"处理图片上传时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # 获取图片路由
+        @self.app.route('/images/<filename>')
+        def get_image(filename):
+            try:
+                return send_from_directory(self.app.config['UPLOAD_FOLDER'], filename)
+            except FileNotFoundError:
+                return jsonify({'message': '图片未找到'}), 404
+        
+        # GPS数据上传路由
+        @self.app.route('/upload_gps', methods=['POST'])
+        def upload_gps():
+            try:
+                gps_data = request.get_json()
+                if not gps_data:
+                    return jsonify({'message': '未接收到有效的GPS数据'}), 400
+
+                # 验证必要字段
+                required_fields = ['lat', 'lon']
+                for field in required_fields:
+                    if field not in gps_data:
+                        return jsonify({'message': f'缺少必要GPS字段: {field}'}), 400
+
+                # 添加时间戳
+                gps_data['server_received_time'] = datetime.now().isoformat()
+                
+                # 保存GPS记录
+                gps_history = self.load_json_data('gps_history.json') or []
+                gps_history.append(gps_data)
+                
+                # 只保留最近100条记录
+                if len(gps_history) > 100:
+                    gps_history = gps_history[-100:]
+                
+                if self.save_json_data(gps_history, 'gps_history.json'):
+                    logger.info(f"[{datetime.now()}] 接收到GPS数据 - 纬度: {gps_data['lat']}, 经度: {gps_data['lon']}")
+                    
+                    # 这里可以添加机器狗导航逻辑
+                    # 例如：robot_controller.navigate_to(gps_data['lat'], gps_data['lon'])
+                    
+                    return jsonify({
+                        'message': 'GPS数据接收成功!', 
+                        'received_data': gps_data
+                    }), 200
+                else:
+                    return jsonify({'message': '保存GPS数据失败'}), 500
+
+            except Exception as e:
+                logger.error(f"处理GPS数据时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # 获取GPS历史记录路由
+        @self.app.route('/get_gps_history', methods=['GET'])
+        def get_gps_history():
+            try:
+                gps_history = self.load_json_data('gps_history.json') or []
+                return jsonify(gps_history), 200
+            except Exception as e:
+                logger.error(f"获取GPS历史时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # ========== 人脸信息管理 API ==========
+        @self.app.route('/get_face_info', methods=['GET'])
+        def get_face_info():
+            """获取所有人脸信息"""
+            try:
+                face_info = self.load_assets_json('face_info.json')
+                return jsonify(face_info), 200
+            except Exception as e:
+                logger.error(f"获取人脸信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        @self.app.route('/update_face_info', methods=['POST'])
+        def update_face_info():
+            """更新或添加人脸信息"""
+            try:
+                data = request.get_json()
+                if not data:
+                    return jsonify({'message': '未接收到有效数据'}), 400
+                
+                face_id = data.get('face_id')
+                description = data.get('description', '')
+                audio_file = data.get('audio_file', '')
+                
+                if not face_id:
+                    return jsonify({'message': '缺少face_id字段'}), 400
+                
+                # 加载现有数据
+                face_info = self.load_assets_json('face_info.json')
+                
+                # 更新或添加
+                face_info[face_id] = {
+                    'description': description,
+                    'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'audio_file': audio_file
+                }
+                
+                if self.save_assets_json(face_info, 'face_info.json'):
+                    logger.info(f"[{datetime.now()}] 人脸信息已更新: {face_id}")
+                    return jsonify({'message': '人脸信息更新成功', 'face_id': face_id}), 200
+                else:
+                    return jsonify({'message': '保存失败'}), 500
+                    
+            except Exception as e:
+                logger.error(f"更新人脸信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        @self.app.route('/delete_face_info', methods=['POST'])
+        def delete_face_info():
+            """删除人脸信息"""
+            try:
+                data = request.get_json()
+                face_id = data.get('face_id')
+                
+                if not face_id:
+                    return jsonify({'message': '缺少face_id字段'}), 400
+                
+                face_info = self.load_assets_json('face_info.json')
+                if face_id in face_info:
+                    del face_info[face_id]
+                    if self.save_assets_json(face_info, 'face_info.json'):
+                        return jsonify({'message': '删除成功'}), 200
+                    else:
+                        return jsonify({'message': '保存失败'}), 500
+                else:
+                    return jsonify({'message': '未找到该人脸信息'}), 404
+                    
+            except Exception as e:
+                logger.error(f"删除人脸信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # 上传人脸照片到face_detector目录
+        @self.app.route('/upload_face_image', methods=['POST'])
+        def upload_face_image():
+            """上传人脸照片到face_detector/known_faces目录"""
+            try:
+                if 'file' not in request.files:
+                    return jsonify({'message': '请求中未包含文件'}), 400
+                
+                file = request.files['file']
+                face_id = request.form.get('face_id', '')
+                
+                if file.filename == '':
+                    return jsonify({'message': '未选择文件'}), 400
+                
+                if not face_id:
+                    return jsonify({'message': '缺少face_id参数'}), 400
+                
+                if file and self.allowed_file(file.filename):
+                    # 确保face_id格式正确
+                    if not face_id.startswith('face_'):
+                        face_id = f"face_{face_id}"
+                    
+                    # 保存到face_detector/known_faces目录
+                    face_dir = os.path.join(self.ASSETS_FOLDER, 'face_detector', 'known_faces')
+                    os.makedirs(face_dir, exist_ok=True)
+                    
+                    # 使用face_id作为文件名
+                    ext = os.path.splitext(file.filename)[1]
+                    filename = f"{face_id}{ext}"
+                    save_path = os.path.join(face_dir, filename)
+                    file.save(save_path)
+                    
+                    logger.info(f"[{datetime.now()}] 人脸照片已保存: {save_path}")
+                    return jsonify({
+                        'message': '人脸照片上传成功!',
+                        'face_id': face_id,
+                        'file_path': filename
+                    }), 200
+                else:
+                    return jsonify({'message': '不支持的文件类型'}), 400
+                    
+            except Exception as e:
+                logger.error(f"处理人脸照片上传时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # ========== 药品信息管理 API ==========
+        @self.app.route('/get_qr_code_info', methods=['GET'])
+        def get_qr_code_info():
+            """获取所有药品信息"""
+            try:
+                qr_info = self.load_assets_json('qr_code_info.json')
+                return jsonify(qr_info), 200
+            except Exception as e:
+                logger.error(f"获取药品信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        @self.app.route('/update_qr_code_info', methods=['POST'])
+        def update_qr_code_info():
+            """更新或添加药品信息"""
+            try:
+                data = request.get_json()
+                if not data:
+                    return jsonify({'message': '未接收到有效数据'}), 400
+                
+                med_id = data.get('med_id')
+                description = data.get('description', '')
+                audio_file = data.get('audio_file', '')
+                
+                if not med_id:
+                    return jsonify({'message': '缺少med_id字段'}), 400
+                
+                # 加载现有数据
+                qr_info = self.load_assets_json('qr_code_info.json')
+                
+                # 更新或添加
+                qr_info[med_id] = {
+                    'description': description,
+                    'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'audio_file': audio_file
+                }
+                
+                if self.save_assets_json(qr_info, 'qr_code_info.json'):
+                    logger.info(f"[{datetime.now()}] 药品信息已更新: {med_id}")
+                    return jsonify({'message': '药品信息更新成功', 'med_id': med_id}), 200
+                else:
+                    return jsonify({'message': '保存失败'}), 500
+                    
+            except Exception as e:
+                logger.error(f"更新药品信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        @self.app.route('/delete_qr_code_info', methods=['POST'])
+        def delete_qr_code_info():
+            """删除药品信息"""
+            try:
+                data = request.get_json()
+                med_id = data.get('med_id')
+                
+                if not med_id:
+                    return jsonify({'message': '缺少med_id字段'}), 400
+                
+                qr_info = self.load_assets_json('qr_code_info.json')
+                if med_id in qr_info:
+                    del qr_info[med_id]
+                    if self.save_assets_json(qr_info, 'qr_code_info.json'):
+                        return jsonify({'message': '删除成功'}), 200
+                    else:
+                        return jsonify({'message': '保存失败'}), 500
+                else:
+                    return jsonify({'message': '未找到该药品信息'}), 404
+                    
+            except Exception as e:
+                logger.error(f"删除药品信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # ========== 照片信息管理 API (记忆库) ==========
+        @self.app.route('/get_photo_info', methods=['GET'])
+        def get_photo_info():
+            """获取所有照片信息"""
+            try:
+                photo_info = self.load_assets_json('photo_info.json')
+                return jsonify(photo_info), 200
+            except Exception as e:
+                logger.error(f"获取照片信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        @self.app.route('/update_photo_info', methods=['POST'])
+        def update_photo_info():
+            """更新或添加照片信息"""
+            try:
+                data = request.get_json()
+                if not data:
+                    return jsonify({'message': '未接收到有效数据'}), 400
+                
+                photo_id = data.get('photo_id')
+                description = data.get('description', '')
+                audio_file = data.get('audio_file', '')
+                
+                if not photo_id:
+                    return jsonify({'message': '缺少photo_id字段'}), 400
+                
+                # 加载现有数据
+                photo_info = self.load_assets_json('photo_info.json')
+                
+                # 更新或添加
+                photo_info[photo_id] = {
+                    'description': description,
+                    'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'audio_file': audio_file
+                }
+                
+                if self.save_assets_json(photo_info, 'photo_info.json'):
+                    logger.info(f"[{datetime.now()}] 照片信息已更新: {photo_id}")
+                    return jsonify({'message': '照片信息更新成功', 'photo_id': photo_id}), 200
+                else:
+                    return jsonify({'message': '保存失败'}), 500
+                    
+            except Exception as e:
+                logger.error(f"更新照片信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        @self.app.route('/delete_photo_info', methods=['POST'])
+        def delete_photo_info():
+            """删除照片信息"""
+            try:
+                data = request.get_json()
+                photo_id = data.get('photo_id')
+                
+                if not photo_id:
+                    return jsonify({'message': '缺少photo_id字段'}), 400
+                
+                photo_info = self.load_assets_json('photo_info.json')
+                if photo_id in photo_info:
+                    del photo_info[photo_id]
+                    if self.save_assets_json(photo_info, 'photo_info.json'):
+                        return jsonify({'message': '删除成功'}), 200
+                    else:
+                        return jsonify({'message': '保存失败'}), 500
+                else:
+                    return jsonify({'message': '未找到该照片信息'}), 404
+                    
+            except Exception as e:
+                logger.error(f"删除照片信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # 上传记忆库照片到photo_detector目录
+        @self.app.route('/upload_photo_image', methods=['POST'])
+        def upload_photo_image():
+            """上传照片到photo_detector目录"""
+            try:
+                if 'file' not in request.files:
+                    return jsonify({'message': '请求中未包含文件'}), 400
+                
+                file = request.files['file']
+                photo_id = request.form.get('photo_id', '')
+                
+                if file.filename == '':
+                    return jsonify({'message': '未选择文件'}), 400
+                
+                if not photo_id:
+                    return jsonify({'message': '缺少photo_id参数'}), 400
+                
+                if file and self.allowed_file(file.filename):
+                    # 确保photo_id格式正确
+                    if not photo_id.startswith('photo_'):
+                        photo_id = f"photo_{photo_id}"
+                    
+                    # 保存到photo_detector目录
+                    photo_dir = os.path.join(self.ASSETS_FOLDER, 'photo_detector')
+                    os.makedirs(photo_dir, exist_ok=True)
+                    
+                    # 使用photo_id作为文件名
+                    ext = os.path.splitext(file.filename)[1]
+                    filename = f"{photo_id}{ext}"
+                    save_path = os.path.join(photo_dir, filename)
+                    file.save(save_path)
+                    
+                    logger.info(f"[{datetime.now()}] 照片已保存: {save_path}")
+                    return jsonify({
+                        'message': '照片上传成功!',
+                        'photo_id': photo_id,
+                        'file_path': filename
+                    }), 200
+                else:
+                    return jsonify({'message': '不支持的文件类型'}), 400
+                    
+            except Exception as e:
+                logger.error(f"处理照片上传时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+        
+        # 新增：发送指令接口，供 Flutter/Kivy DogScreen 调用
+        @self.app.route('/send_command', methods=['POST'])
+        def send_command():
+            try:
+                data = request.get_json() or {}
+                cmd = data.get('command', '')
+                ts = data.get('timestamp') or datetime.now().isoformat()
+
+                # 将指令加入对话历史
+                new_id = (self.dialog_history[-1]['id'] + 1) if self.dialog_history else 0
+                self.dialog_history.append({
+                    'id': new_id,
+                    'role': 'user',
+                    'message': cmd,
+                    'timestamp': ts,
+                    'type': 'command',
+                })
+
+                # 简单模拟机器人回复
+                reply_id = new_id + 1
+                self.dialog_history.append({
+                    'id': reply_id,
+                    'role': 'assistant',
+                    'message': f'收到指令：{cmd}',
+                    'timestamp': datetime.now().isoformat(),
+                    'type': 'reply',
+                })
+
+                # 保留最近 50 条
+                if len(self.dialog_history) > 50:
+                    self.dialog_history = self.dialog_history[-50:]
+
+                return jsonify({'message': '指令已接收'}), 200
+            except Exception as e:
+                logger.error(f"处理指令时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        # 新增：返回充电接口
+        @self.app.route('/return_home', methods=['POST'])
+        def return_home():
+            try:
+                # 在真实系统中这里应调用机器人回充逻辑
+                self.current_status = 'returning_home'
+                logger.info(f"[{datetime.now()}] 收到返回充电指令")
+
+                new_id = (self.dialog_history[-1]['id'] + 1) if self.dialog_history else 0
+                self.dialog_history.append({
+                    'id': new_id,
+                    'role': 'assistant',
+                    'message': '已收到返回充电指令，正在前往充电座。',
+                    'timestamp': datetime.now().isoformat(),
+                    'type': 'reply',
+                })
+                if len(self.dialog_history) > 50:
+                    self.dialog_history = self.dialog_history[-50:]
+
+                return jsonify({'message': '返回充电指令已接收'}), 200
+            except Exception as e:
+                logger.error(f"处理返回充电指令时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        # 新增：SOS 警报接口
+        @self.app.route('/sos_alert', methods=['POST'])
+        def sos_alert():
+            try:
+                data = request.get_json() or {}
+                logger.warning(f"[{datetime.now()}] 收到SOS: {data}")
+                # 这里只是记录日志和简单应答，实际可扩展为通知家属等
+                return jsonify({'message': 'SOS已接收'}), 200
+            except Exception as e:
+                logger.error(f"处理SOS时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        # ========== 新增 日程管理 API ==========
+        @self.app.route('/get_schedule', methods=['GET'])
+        def get_schedule():
+            try:
+                data = self.load_assets_json('reminders.json')
+                return jsonify(data.get('reminders', [])), 200
+            except Exception as e:
+                logger.error(f"获取日程失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/update_schedule', methods=['POST'])
+        def update_schedule():
+            try:
+                payload = request.get_json()
+                if not payload:
+                    return jsonify({'message': '未接收到数据'}), 400
+
+                schedules = self.load_assets_json('reminders.json').get('reminders', [])
+                schedule_id = payload.get('schedule_id')
+                if schedule_id is None:
+                    schedule_id = (max((item.get('id', 0) for item in schedules), default=0) + 1)
+                    schedules.append({
+                        'id': schedule_id,
+                        'time': payload.get('time', ''),
+                        'event': payload.get('event', ''),
+                        'completed': bool(payload.get('completed', False)),
+                      })
+                else:
+                    updated = False
+                    for item in schedules:
+                        if item.get('id') == schedule_id:
+                            item['time'] = payload.get('time', item['time'])
+                            item['event'] = payload.get('event', item['event'])
+                            item['completed'] = bool(payload.get('completed', item['completed']))
+                            updated = True
+                            break
+                    if not updated:
+                        return jsonify({'message': '未找到对应日程'}), 404
+
+                if self.save_assets_json({'schedules': schedules}, 'schedules.json'):
+                    return jsonify({'message': '日程保存成功', 'schedule_id': schedule_id}), 200
+                return jsonify({'message': '保存失败'}), 500
+            except Exception as e:
+                logger.error(f"保存日程失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/delete_schedule', methods=['POST'])
+        def delete_schedule():
+            try:
+                data = request.get_json()
+                schedule_id = data.get('schedule_id')
+                if schedule_id is None:
+                    return jsonify({'message': '缺少 schedule_id'}), 400
+
+                schedules = self.load_assets_json('reminders.json').get('reminders', [])
+                schedules = [item for item in schedules if item.get('id') != schedule_id]
+                if self.save_assets_json({'schedules': schedules}, 'schedules.json'):
+                    return jsonify({'message': '删除成功'}), 200
+                return jsonify({'message': '保存失败'}), 500
+            except Exception as e:
+                logger.error(f"删除日程失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        # 新增：重要消息广播 API
+        @self.app.route('/broadcast_important_message', methods=['POST'])
+        def broadcast_important_message():
+            """
+            接收一条重要提醒并保存，示例请求体:
+            {
+              "type": "face",  # 可选: face/medicine/other
+              "message": "这是XXX，这是陌生人，下午5点要吃XX药了",
+              "expires_at": "2025-10-01T17:30:00"
+            }
+            """
+            try:
+                data = request.get_json() or {}
+                message = data.get('message', '').strip()
+                if not message:
+                    return jsonify({'message': '消息内容不能为空'}), 400
+
+                msg_type = data.get('type', 'other')
+                expires_at = data.get('expires_at')
+                payload = {
+                    'type': msg_type,
+                    'message': message,
+                    'created_at': datetime.now().isoformat(),
+                    'expires_at': expires_at,
+                }
+                # 使用 uploads 目录下的 JSON 做持久化
+                if self.save_json_data(payload, 'important_message.json'):
+                    logger.info(f"[{datetime.now()}] 收到重要消息: {payload}")
+                    return jsonify({'message': '重要消息已保存'}), 200
+                return jsonify({'message': '保存失败'}), 500
+            except Exception as e:
+                logger.error(f"保存重要消息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/get_important_message', methods=['GET'])
+        def get_important_message():
+            """
+            获取当前有效的重要提醒。
+            若不存在或已过期，返回 { "has_message": false }。
+            """
+            try:
+                data = self.load_json_data('important_message.json')
+                if not data:
+                    return jsonify({'has_message': False}), 200
+
+                expires_at = data.get('expires_at')
+                if expires_at:
+                    try:
+                        # 简单到期检查
+                        exp = datetime.fromisoformat(expires_at)
+                        if datetime.now() > exp:
+                            return jsonify({'has_message': False}), 200
+                    except Exception:
+                        # expires_at 格式不对时忽略到期判断
+                        pass
+
+                return jsonify({
+                    'has_message': True,
+                    'type': data.get('type', 'other'),
+                    'message': data.get('message', ''),
+                    'created_at': data.get('created_at', ''),
+                    'expires_at': data.get('expires_at', None),
+                }), 200
+            except Exception as e:
+                logger.error(f"获取重要消息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        # 错误处理
+        @self.app.errorhandler(413)
+        def too_large(e):
+            """处理文件过大错误"""
+            return jsonify({'message': '文件大小超过限制(16MB)'}), 413
+
+        @self.app.errorhandler(500)
+        def internal_error(e):
+            """处理内部服务器错误"""
+            return jsonify({'message': '服务器内部错误'}), 500
+        
+        
+
+
+
+    
+    def run_server(self):
+        """运行Flask服务器"""
+        print("启动机器狗控制服务器...")
+        print(f"上传目录: {os.path.abspath(self.app.config['UPLOAD_FOLDER'])}")
+        print("服务器地址: http://0.0.0.0:5000")
+        
+        # 使用多线程模式运行
+        self.app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    
+    def start(self):
+        """启动服务器线程"""
+        server_thread = threading.Thread(target=self.run_server)
+        server_thread.daemon = True
+        server_thread.start()
+        print("机器狗API服务器已启动在端口5000")
+
+# 集成到现有的机器狗主程序
+def main():
+    # 创建机器狗服务器实例
+    dog_server = DogServer()
+    dog_server.start()
+    
+    # 原有的机器狗主循环
+    try:
+        while True:
+            # 这里可以添加机器狗的主要逻辑
+            # 例如：处理视觉识别、运动控制等
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("程序退出")
+
+if __name__ == '__main__':
+    main()
