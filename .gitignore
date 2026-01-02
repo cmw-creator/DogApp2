@@ -48,5 +48,10 @@ windows/
 linux/
 macos/
 
+windows/*
+linux/*
+macos/*
+
+
 # virtual environment
 .venv/

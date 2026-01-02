@@ -4,6 +4,7 @@ import '../services/api.dart';
 class MonitorScreen extends StatelessWidget {
   const MonitorScreen({Key? key}) : super(key: key);
 
+  // 检查服务器状态
   Future<Map<String, dynamic>?> checkServer() async {
     try {
       // 直接使用 /status 与 DogScreen 保持一致
