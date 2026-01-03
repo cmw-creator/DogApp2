@@ -4,6 +4,7 @@ import '../services/api.dart';
 import '../services/local_store.dart';
 import '../services/health_data.dart';
 import '../services/notification_service.dart';
+import '../services/in_app_notification.dart';
 import 'notification_screen.dart';
 
 class ManageScreen extends StatefulWidget {
@@ -53,27 +54,19 @@ class _ManageScreenState extends State<ManageScreen>
   void _showNotificationDialog(Map<String, dynamic> event) {
     final message = event['message']?.toString() ?? '收到新通知';
     final type = event['type']?.toString() ?? 'info';
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('通知：$type'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
-              );
-            },
-            child: const Text('查看通知'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('知道了'),
-          )
-        ],
-      ),
+    InAppNotification.instance.show(
+      title: '通知：$type',
+      message: message,
+      severity: type == 'sos'
+          ? InAppNotificationSeverity.danger
+          : InAppNotificationSeverity.info,
+      actionLabel: '查看通知',
+      onAction: () {
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
+        );
+      },
     );
   }
 

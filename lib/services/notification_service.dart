@@ -1,7 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'api.dart';
+import 'client_id.dart';
+
+// Web 平台优先使用浏览器原生 EventSource（比 http streaming 稳定很多）
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 
 /// 简易 SSE 通知服务
 class NotificationService {
@@ -14,6 +22,14 @@ class NotificationService {
   bool _running = false;
   http.Client? _client;
   final StringBuffer _buffer = StringBuffer();
+  final String clientId = '${_defaultClientId()}-${ClientId.value}';
+
+  bool debugEnabled = true;
+
+  void _log(String msg) {
+    if (!debugEnabled) return;
+    debugPrint('[NotificationService][$clientId] $msg');
+  }
 
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
@@ -23,35 +39,86 @@ class NotificationService {
   void start() {
     if (_running) return;
     _running = true;
-    _connect();
+    _log('start() serverUrl=${Api.serverUrl}');
+    if (kIsWeb) {
+      _connectWeb();
+    } else {
+      _connect();
+    }
   }
 
   void stop() {
     _running = false;
+    _log('stop()');
     _subscription?.cancel();
     _client?.close();
     _subscription = null;
     _client = null;
+
+    _es?.close();
+    _es = null;
+  }
+
+  html.EventSource? _es;
+
+  void _connectWeb() {
+    if (!_running) return;
+    final url = '${Api.serverUrl}/notifications/subscribe?client_id=$clientId';
+    _log('connectWeb() url=$url');
+
+    try {
+      _es?.close();
+      _es = html.EventSource(url);
+      _es!.onOpen.listen((_) {
+        _log('EventSource open');
+      });
+      _es!.onError.listen((event) {
+        _log('EventSource error; will reconnect');
+        _es?.close();
+        _es = null;
+        if (_running) {
+          Future.delayed(const Duration(seconds: 2), _connectWeb);
+        }
+      });
+      _es!.onMessage.listen((html.MessageEvent event) {
+        final data = event.data;
+        if (data == null) return;
+        final dataStr = data.toString();
+        _handleSseDataLine(dataStr);
+      });
+    } catch (e) {
+      _log('connectWeb exception: $e');
+      if (_running) {
+        Future.delayed(const Duration(seconds: 2), _connectWeb);
+      }
+    }
   }
 
   void _connect() async {
     while (_running) {
       try {
         _client = http.Client();
-        final req = http.Request('GET', Uri.parse('${Api.serverUrl}/notifications/subscribe'));
+        _log('connecting...');
+        final req = http.Request(
+          'GET',
+          Uri.parse('${Api.serverUrl}/notifications/subscribe?client_id=$clientId'),
+        );
         final resp = await _client!.send(req);
+        _log('connected status=${resp.statusCode}');
         if (resp.statusCode != 200) throw Exception('status ${resp.statusCode}');
 
         _subscription = resp.stream.listen(_handleChunk,
             onError: (_) => _retry(), onDone: _retry, cancelOnError: true);
         return; // 等待流结束
-      } catch (_) {
+      } catch (e) {
+        _log('connect error: $e');
         await Future.delayed(const Duration(seconds: 2));
       }
     }
   }
 
   void _retry([dynamic _]) {
+    _log('retry()');
     _subscription?.cancel();
     _client?.close();
     _subscription = null;
@@ -62,15 +129,16 @@ class NotificationService {
   }
 
   void _handleChunk(List<int> chunk) {
-    _buffer.write(utf8.decode(chunk));
+    _buffer.write(utf8.decode(chunk, allowMalformed: true));
 
-    // SSE 事件以空行分隔（\n\n）。可能跨 chunk，需要累积缓冲再拆分。
+    // SSE 事件以空行分隔（\n\n 或 \r\n\r\n）。可能跨 chunk，需要累积缓冲再拆分。
     final text = _buffer.toString();
-    final parts = text.split('\n\n');
+    final parts = text.replaceAll('\r\n', '\n').split('\n\n');
 
     // 最后一个片段可能是不完整的，保留在缓冲
     _buffer.clear();
-    if (!text.endsWith('\n\n')) {
+    final normalized = text.replaceAll('\r\n', '\n');
+    if (!normalized.endsWith('\n\n')) {
       _buffer.write(parts.removeLast());
     }
 
@@ -81,17 +149,57 @@ class NotificationService {
         if (!trimmed.startsWith('data:')) continue;
         final dataPart = trimmed.substring(5).trim();
         if (dataPart.isEmpty) continue;
-        try {
-          final decoded = json.decode(dataPart);
-          if (decoded is Map<String, dynamic>) {
-            _history.add(decoded);
-            if (_history.length > 100) _history.removeAt(0);
-            _controller.add(decoded);
-          }
-        } catch (_) {
-          // ignore decode errors
-        }
+        _handleSseDataLine(dataPart);
       }
     }
   }
+
+  void _handleSseDataLine(String dataPart) {
+    if (dataPart.isEmpty) return;
+    try {
+      final decoded = json.decode(dataPart);
+      if (decoded is! Map) return;
+      final mapped = Map<String, dynamic>.from(decoded);
+      final type = mapped['type']?.toString();
+      _log('event type=$type raw=$mapped');
+      _history.add(mapped);
+      if (_history.length > 100) _history.removeAt(0);
+      _controller.add(mapped);
+
+      // 对非 ping/hello 的业务通知发送 ack，方便另一端感知送达
+      try {
+        final id = mapped['id'];
+        if (id is int && type != 'ping' && type != 'hello' && type != 'ack') {
+          _log('sending ack id=$id');
+          Api.ackNotification(id: id, clientId: clientId);
+        }
+      } catch (_) {}
+    } catch (e) {
+      _log('decode error: $e dataPart=$dataPart');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchHistory({int limit = 50}) async {
+    _log('fetchHistory limit=$limit');
+    final list = await Api.getNotificationHistory(limit: limit);
+    if (list == null) return [];
+    final mapped = list
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    _log('history size=${mapped.length}');
+    return mapped;
+  }
+}
+
+String _defaultClientId() {
+  try {
+    if (kIsWeb) return 'web';
+    if (Platform.isWindows) return 'windows';
+    if (Platform.isMacOS) return 'macos';
+    if (Platform.isLinux) return 'linux';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+  } catch (_) {}
+  return 'unknown';
 }

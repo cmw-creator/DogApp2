@@ -15,6 +15,8 @@ import 'screens/community_screen.dart';
 import 'screens/notification_screen.dart';
 import 'services/api.dart';
 import 'services/local_store.dart';
+import 'services/in_app_notification.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -120,6 +122,9 @@ class MyApp extends StatelessWidget {
         ),
       ),
       home: const RootPage(),
+      builder: (context, child) {
+        return InAppNotificationOverlay(child: child ?? const SizedBox.shrink());
+      },
       debugShowCheckedModeBanner: false,
     );
   }
@@ -151,6 +156,31 @@ class _RootPageState extends State<RootPage> {
   void initState() {
     super.initState();
     _initState();
+
+    // 全局启动通知订阅：即使当前不在 Today/Manage，也能收到弹窗。
+    NotificationService.instance.start();
+
+    // 全局订阅通知流并弹窗。避免仅在特定页面监听导致“无弹窗”。
+    NotificationService.instance.stream.listen((event) {
+      final type = event['type']?.toString() ?? 'info';
+      if (type == 'ping' || type == 'hello' || type == 'ack') return;
+
+      final message = event['message']?.toString() ?? '收到新通知';
+      InAppNotification.instance.show(
+        title: type == 'sos' ? 'SOS' : '通知：$type',
+        message: message,
+        severity: type == 'sos'
+            ? InAppNotificationSeverity.danger
+            : InAppNotificationSeverity.info,
+        actionLabel: '查看通知',
+        onAction: () {
+          if (!mounted) return;
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
+          );
+        },
+      );
+    });
   }
 
   Future<void> _initState() async {

@@ -223,6 +223,8 @@ class Api {
   static Future<bool> publishNotification({
     required String message,
     String type = 'info',
+    String? from,
+    String? to,
     Map<String, dynamic>? payload,
   }) async {
     try {
@@ -232,7 +234,37 @@ class Api {
               body: json.encode({
                 'message': message,
                 'type': type,
+                'from': from,
+                'to': to,
                 'payload': payload ?? {},
+              }))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<List<dynamic>?> getNotificationHistory({int limit = 50}) async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$serverUrl/notifications/history?limit=$limit'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as List<dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<bool> ackNotification({required int id, String? clientId}) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/notifications/ack'),
+              headers: _headers,
+              body: json.encode({
+                'id': id,
+                'client_id': clientId,
               }))
           .timeout(const Duration(seconds: 5));
       return resp.statusCode == 200;

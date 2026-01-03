@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../services/local_store.dart';
 import '../services/health_data.dart';
-import '../services/local_notification_service.dart';
+import '../services/in_app_notification.dart';
 import '../services/notification_service.dart';
 import 'notification_screen.dart';
 
@@ -38,7 +38,6 @@ class _TodayScreenState extends State<TodayScreen> {
     _loadSchedules();
     _loadImportantMessage();
     _loadDayData();
-    LocalNotificationService.instance.init();
     _startNotificationListener();
   }
 
@@ -161,12 +160,17 @@ class _TodayScreenState extends State<TodayScreen> {
   void _showScheduleReminder({required String event, required String timeStr}) {
     final title = '日程提醒';
     final body = '$event ($timeStr)';
-    LocalNotificationService.instance
-        .showInstant(title: title, body: body);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(body)),
+    InAppNotification.instance.show(
+      title: title,
+      message: body,
+      severity: InAppNotificationSeverity.info,
+      actionLabel: '查看通知',
+      onAction: () {
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
+        );
+      },
     );
   }
 
@@ -193,25 +197,18 @@ class _TodayScreenState extends State<TodayScreen> {
   }
 
   void _showNotificationDialog({required String title, required String message}) {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
-              );
-            },
-            child: const Text('查看通知'),
-          ),
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('好的')),
-        ],
-      ),
+    InAppNotification.instance.show(
+      title: title,
+      message: message,
+      severity:
+          title == 'SOS' ? InAppNotificationSeverity.danger : InAppNotificationSeverity.info,
+      actionLabel: '查看通知',
+      onAction: () {
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
+        );
+      },
     );
   }
 

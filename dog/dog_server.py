@@ -74,6 +74,11 @@ class DogServer:
         self.notification_subscribers = []
         self.notification_lock = Lock()
 
+        # 通知历史与确认（用于双向通知链路）
+        self.notification_history = []
+        self.notification_history_lock = Lock()
+        self.notification_next_id = 1
+
         # 日程提醒推送相关
         self.schedule_notifier_stop = threading.Event()
         self.schedule_last_trigger = {}
@@ -209,6 +214,15 @@ class DogServer:
     def broadcast_notification(self, data: dict):
         """向所有订阅者推送通知"""
         try:
+            # 记录历史（最多 200 条），并分配 id
+            with self.notification_history_lock:
+                if 'id' not in data:
+                    data['id'] = self.notification_next_id
+                    self.notification_next_id += 1
+                self.notification_history.append(data)
+                if len(self.notification_history) > 200:
+                    self.notification_history = self.notification_history[-200:]
+
             with self.notification_lock:
                 subscribers = list(self.notification_subscribers)
             for q in subscribers:
@@ -929,42 +943,91 @@ class DogServer:
         @self.app.route('/notifications/subscribe')
         def subscribe_notifications():
             """基于SSE的通知订阅通道"""
+            client_id = request.args.get('client_id') or 'unknown'
             q = Queue()
+            logger.info(f"[notifications] SSE subscribe client_id={client_id}")
             with self.notification_lock:
                 self.notification_subscribers.append(q)
+                logger.info(f"[notifications] subscribers={len(self.notification_subscribers)}")
 
             def gen():
                 # 首次推送一条hello保持兼容
-                yield 'data: {"type":"hello"}\n\n'
+                yield f"data: {json.dumps({'type': 'hello', 'client_id': client_id}, ensure_ascii=False)}\n\n"
                 try:
                     while True:
                         try:
                             item = q.get(timeout=25)
+                            logger.info(f"[notifications] deliver to={client_id} type={item.get('type')} id={item.get('id')}")
                             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                         except Exception:
                             # 心跳，保持连接
+                            logger.debug(f"[notifications] ping to={client_id}")
                             yield 'data: {"type":"ping"}\n\n'
                 finally:
                     with self.notification_lock:
                         if q in self.notification_subscribers:
                             self.notification_subscribers.remove(q)
+                            logger.info(f"[notifications] SSE disconnect client_id={client_id} subscribers={len(self.notification_subscribers)}")
 
             headers = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
-                'X-Accel-Buffering': 'no'
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive',
+                'Access-Control-Allow-Origin': '*'
             }
             return Response(stream_with_context(gen()), headers=headers)
+
+        @self.app.route('/notifications/history', methods=['GET'])
+        def notifications_history():
+            """拉取最近通知历史（用于重连补偿与通知中心列表）"""
+            try:
+                limit = int(request.args.get('limit', 50))
+                limit = max(1, min(limit, 200))
+                with self.notification_history_lock:
+                    items = list(self.notification_history)[-limit:]
+                logger.info(f"[notifications] history limit={limit} -> {len(items)}")
+                return jsonify(items), 200
+            except Exception as e:
+                logger.error(f"获取通知历史失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/notifications/ack', methods=['POST'])
+        def notifications_ack():
+            """通知确认回执（应用内弹窗已展示/已处理）"""
+            try:
+                data = request.get_json() or {}
+                notif_id = data.get('id')
+                client_id = data.get('client_id')
+                logger.info(f"[notifications] ack id={notif_id} from_client={client_id}")
+                ack = {
+                    'type': 'ack',
+                    'timestamp': datetime.now().isoformat(),
+                    'payload': {
+                        'id': notif_id,
+                        'client_id': client_id,
+                    },
+                    'message': 'ack'
+                }
+                # ack 也进入推送通道，便于另一端看到“已送达/已查看”
+                self.broadcast_notification(ack)
+                return jsonify({'message': 'ok'}), 200
+            except Exception as e:
+                logger.error(f"通知确认失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
 
         @self.app.route('/notifications/publish', methods=['POST'])
         def publish_notification():
             try:
                 data = request.get_json() or {}
+                logger.info(f"[notifications] publish req={data}")
                 notif = {
                     'type': data.get('type', 'info'),
                     'timestamp': datetime.now().isoformat(),
                     'payload': data.get('payload', {}),
                     'message': data.get('message', '有新的通知'),
+                    'from': data.get('from'),
+                    'to': data.get('to'),
                 }
                 self.broadcast_notification(notif)
                 return jsonify({'message': '已推送'}), 200

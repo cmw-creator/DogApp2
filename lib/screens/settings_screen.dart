@@ -123,6 +123,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   final ok = await Api.publishNotification(
                     message: '这是一条测试通知',
                     type: 'test',
+                    from: widget.userType == SettingsUserType.patient ? 'patient' : 'family',
+                    to: 'all',
                     payload: {'from': widget.userType == SettingsUserType.patient ? 'patient' : 'family'},
                   );
                   if (mounted) {

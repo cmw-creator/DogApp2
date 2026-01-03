@@ -12,17 +12,32 @@ class NotificationCenterScreen extends StatefulWidget {
 class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   late List<Map<String, dynamic>> _items;
   StreamSubscription<Map<String, dynamic>>? _sub;
+  bool _loading = false;
 
   @override
   void initState() {
     super.initState();
     _items = NotificationService.instance.historySnapshot;
     NotificationService.instance.start();
+    _refresh();
     _sub = NotificationService.instance.stream.listen((event) {
       setState(() {
         _items = NotificationService.instance.historySnapshot;
       });
     });
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _loading = true);
+    try {
+      final history = await NotificationService.instance.fetchHistory(limit: 100);
+      if (!mounted) return;
+      setState(() {
+        _items = history;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -35,9 +50,21 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('通知中心')),
+      appBar: AppBar(
+        title: const Text('通知中心'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _refresh,
+          ),
+        ],
+      ),
       body: _items.isEmpty
-          ? const Center(child: Text('暂无通知'))
+          ? Center(
+              child: _loading
+                  ? const CircularProgressIndicator()
+                  : const Text('暂无通知'),
+            )
           : ListView.builder(
               itemCount: _items.length,
               itemBuilder: (ctx, i) {
