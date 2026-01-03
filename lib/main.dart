@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'screens/auth_screen.dart';
 // 导入拆分后的页面
 import 'screens/dog_screen.dart';
 import 'screens/today_screen.dart';
@@ -10,9 +11,13 @@ import 'screens/help_screen.dart';
 import 'screens/manage_screen.dart';
 import 'screens/monitor_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/community_screen.dart';
 import 'services/api.dart';
+import 'services/local_store.dart';
 
-void main() async {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await LocalStore.ensureInit();
   // 尝试启动本地测试后端（桌面调试时模拟 Kivy 中在 __main__ 里启动 DogServer）
   startTestBackend();
 
@@ -123,16 +128,82 @@ class _RootPageState extends State<RootPage> {
   String userType = 'family';
   int _currentIndex = 0;
 
+  // 登录与绑定状态
+  bool _initialized = false;
+  bool _familyLoggedIn = false;
+  String? _patientCode;
+  String? _bindCode;
+  String? _boundPatientCode;
+
   // 服务器地址可在 Settings 页面修改（这里是内存保存示例）
   String serverUrl = 'http://127.0.0.1:5000';
 
+  @override
+  void initState() {
+    super.initState();
+    _initState();
+  }
+
+  Future<void> _initState() async {
+    await LocalStore.ensureInit();
+    setState(() {
+      _familyLoggedIn = LocalStore.isLoggedIn;
+      _patientCode = LocalStore.patientCode;
+      _bindCode = LocalStore.bindCode;
+      _boundPatientCode = LocalStore.boundPatientCode;
+      _initialized = true;
+    });
+  }
+
+  Future<void> _handleLogin(String phone, String password) async {
+    final ok = await LocalStore.login(phone, password);
+    if (ok && mounted) {
+      setState(() => _familyLoggedIn = true);
+    }
+  }
+
+  Future<void> _handleRegister(String phone, String password) async {
+    final ok = await LocalStore.register(phone, password);
+    if (ok && mounted) {
+      setState(() => _familyLoggedIn = true);
+    }
+  }
+
+  Future<void> _handleLogout() async {
+    await LocalStore.logout();
+    if (mounted) {
+      setState(() {
+        _familyLoggedIn = false;
+        _currentIndex = 0;
+      });
+    }
+  }
+
+  Future<void> _handleRegenerateBindCode() async {
+    await LocalStore.regenerateBindCode();
+    if (mounted) setState(() => _bindCode = LocalStore.bindCode);
+  }
+
+  Future<void> _handleBindPatient(String patientCode, String bindCode) async {
+    // 简单本地校验：只有与患者端生成的 code 匹配才视为成功
+    if (patientCode == LocalStore.patientCode && bindCode == LocalStore.bindCode) {
+      await LocalStore.setBoundPatient(patientCode);
+      if (mounted) setState(() => _boundPatientCode = patientCode);
+    }
+  }
+
   // 根据 userType 构建页面列表与导航项
-  List<Widget> get _patientPages => const [
-        DogScreen(),
-        TodayScreen(),
-        MemoryScreen(),
-        HelpScreen(),
-        SettingsScreen(),
+  List<Widget> get _patientPages => [
+        const DogScreen(),
+        const TodayScreen(),
+        const MemoryScreen(),
+        const HelpScreen(),
+        SettingsScreen(
+          userType: SettingsUserType.patient,
+          patientCode: _patientCode,
+          bindCode: _bindCode,
+          onRegenerateBindCode: _handleRegenerateBindCode,
+        ),
       ];
 
   List<BottomNavigationBarItem> get _patientNavItems => const [
@@ -151,25 +222,52 @@ class _RootPageState extends State<RootPage> {
           });
         }),
         const MonitorScreen(),
+        const CommunityScreen(),
         SettingsScreen(
+          userType: SettingsUserType.family,
           initialServerUrl: serverUrl,
+          boundPatientCode: _boundPatientCode,
+          onBindPatient: _handleBindPatient,
           onServerUrlSaved: (url) {
             setState(() {
               serverUrl = url;
               Api.serverUrl = url;
             });
           },
+          onLogout: _handleLogout,
         ),
       ];
 
   List<BottomNavigationBarItem> get _familyNavItems => const [
         BottomNavigationBarItem(icon: Icon(Icons.group), label: '管理'),
         BottomNavigationBarItem(icon: Icon(Icons.monitor), label: '监控'),
+        BottomNavigationBarItem(icon: Icon(Icons.people), label: '社区'),
         BottomNavigationBarItem(icon: Icon(Icons.settings), label: '设置'),
       ];
 
   @override
   Widget build(BuildContext context) {
+    if (!_initialized) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (userType == 'family' && !_familyLoggedIn) {
+      return AuthScreen(
+        onLogin: (phone, pwd) async {
+          await _handleLogin(phone, pwd);
+          if (mounted && _familyLoggedIn) setState(() => _currentIndex = 0);
+          return _familyLoggedIn;
+        },
+        onRegister: (phone, pwd) async {
+          await _handleRegister(phone, pwd);
+          if (mounted && _familyLoggedIn) setState(() => _currentIndex = 0);
+          return _familyLoggedIn;
+        },
+      );
+    }
+
     final pages = userType == 'patient' ? _patientPages : _familyPages;
     final navItems = userType == 'patient' ? _patientNavItems : _familyNavItems;
 
