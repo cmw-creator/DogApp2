@@ -4,11 +4,13 @@ import threading
 import time
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from werkzeug.utils import secure_filename
 from threading import Lock
+from queue import Queue
 import cv2
+import re
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -69,8 +71,30 @@ class DogServer:
             },
         ]
 
+        # 通知订阅（SSE）：保存每个订阅者的队列（支持按 client_id 定向推送）
+        self.notification_subscribers = {}  # client_id -> Queue
+        self.notification_lock = Lock()
+
+        # 通知历史与确认（用于双向通知链路）
+        self.notification_history = []
+        self.notification_history_lock = Lock()
+        self.notification_next_id = 1
+
+        # 简单账号存储（明文，保存在 uploads/users.json）
+        self.users_filename = 'users.json'
+
+        # 日程提醒推送相关
+        self.schedule_notifier_stop = threading.Event()
+        self.schedule_last_trigger = {}
+        self.schedule_notifier_thread = threading.Thread(
+            target=self._schedule_notifier_loop, daemon=True
+        )
+
         # 设置路由
         self.setup_routes()
+
+        # 启动日程提醒检测线程
+        self.schedule_notifier_thread.start()
     
     def allowed_file(self, filename):
         """检查文件扩展名是否允许[2,3]"""
@@ -125,6 +149,20 @@ class DogServer:
         except Exception as e:
             logger.error(f"保存assets JSON数据失败: {e}")
             return False
+
+    # ========== 简易账号存储（明文，仅演示用途） ==========
+    def load_users(self):
+        data = self.load_json_data(self.users_filename)
+        if not data:
+            return {'users': []}
+        if isinstance(data, list):
+            return {'users': data}
+        if isinstance(data, dict) and 'users' in data:
+            return {'users': data.get('users', [])}
+        return {'users': []}
+
+    def save_users(self, users):
+        return self.save_json_data(users, self.users_filename)
     
     def get_video_stream_generator(self, video_path):
         """生成视频流，循环播放"""
@@ -190,6 +228,110 @@ class DogServer:
         except Exception as e:
             logger.error(f"停止视频直播失败: {e}")
             return False
+
+    def broadcast_notification(self, data: dict):
+        """推送通知。
+
+        约定：
+        - data['to'] == 'all' 或 None: 广播
+        - data['to'] == <client_id>: 定向给某一端
+        - data['to'] == {'any_of': [id1,id2]}: 多播（任一匹配都发送）
+        """
+        try:
+            # 记录历史（最多 200 条），并分配 id
+            with self.notification_history_lock:
+                if 'id' not in data:
+                    data['id'] = self.notification_next_id
+                    self.notification_next_id += 1
+                self.notification_history.append(data)
+                if len(self.notification_history) > 200:
+                    self.notification_history = self.notification_history[-200:]
+
+            target = data.get('to')
+            with self.notification_lock:
+                subs = dict(self.notification_subscribers)
+
+            # 广播
+            if target is None or target == 'all':
+                for _, q in subs.items():
+                    try:
+                        q.put_nowait(data)
+                    except Exception:
+                        continue
+                return
+
+            # 多播
+            if isinstance(target, dict) and isinstance(target.get('any_of'), list):
+                for cid in target.get('any_of'):
+                    q = subs.get(str(cid))
+                    if q is None:
+                        continue
+                    try:
+                        q.put_nowait(data)
+                    except Exception:
+                        continue
+                return
+
+            # 定向
+            q = subs.get(str(target))
+            if q is not None:
+                try:
+                    q.put_nowait(data)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"推送通知失败: {e}")
+
+    def _schedule_notifier_loop(self):
+        """定期检查日程，时间到点时推送通知"""
+        while not self.schedule_notifier_stop.is_set():
+            try:
+                schedules = self.load_assets_json('reminders.json').get('reminders', [])
+                now = datetime.now()
+                today_str = now.strftime('%Y-%m-%d')
+
+                for item in schedules:
+                    time_str = item.get('time', '')
+                    event = item.get('event', '')
+                    schedule_id = item.get('id')
+
+                    # 解析 HH:MM
+                    try:
+                        hh, mm = time_str.split(':')[:2]
+                        hh = int(hh)
+                        mm = int(mm)
+                    except Exception:
+                        continue
+
+                    scheduled_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+
+                    # 如果日程时间已经过了 10 分钟，跳过
+                    if now - scheduled_dt > timedelta(minutes=10):
+                        continue
+
+                    # 仅在时间到且还未推送过时提醒
+                    key = f"{today_str}-{schedule_id}"
+                    if self.schedule_last_trigger.get(key) == today_str:
+                        continue
+
+                    if scheduled_dt <= now <= scheduled_dt + timedelta(minutes=1):
+                        notif = {
+                            'type': 'schedule',
+                            'timestamp': now.isoformat(),
+                            'message': f"日程提醒：{event} ({time_str})",
+                            'payload': {
+                                'schedule_id': schedule_id,
+                                'time': time_str,
+                                'event': event,
+                            }
+                        }
+                        self.broadcast_notification(notif)
+                        self.schedule_last_trigger[key] = today_str
+            except Exception as e:
+                logger.error(f"日程提醒检测失败: {e}")
+
+            # 间隔 30 秒检查一次
+            self.schedule_notifier_stop.wait(30)
     
     def setup_routes(self):
         """设置所有API路由"""
@@ -202,6 +344,64 @@ class DogServer:
                 'service': 'Dog Control Server',
                 'timestamp': datetime.now().isoformat()
             })
+
+        # ========== 简单登录/注册（明文存储，仅演示） ==========
+        @self.app.route('/auth/register', methods=['POST'])
+        def register_user():
+            try:
+                data = request.get_json() or {}
+                phone = (data.get('phone') or '').strip()
+                password = (data.get('password') or '').strip()
+
+                if not phone or not password:
+                    return jsonify({'message': '手机号和密码不能为空'}), 400
+
+                if not re.fullmatch(r'^1\d{10}$', phone):
+                    return jsonify({'message': '手机号格式不正确，需要11位数字且以1开头'}), 400
+
+                if len(password) < 6:
+                    return jsonify({'message': '密码长度需至少6位'}), 400
+
+                users = self.load_users()
+                if any(u.get('phone') == phone for u in users['users']):
+                    return jsonify({'message': '用户已存在'}), 409
+
+                users['users'].append({
+                    'phone': phone,
+                    'password': password,
+                    'created_at': datetime.now().isoformat()
+                })
+
+                if self.save_users(users):
+                    return jsonify({'message': '注册成功', 'phone': phone}), 200
+                return jsonify({'message': '保存失败'}), 500
+            except Exception as e:
+                logger.error(f"注册失败: {e}")
+                return jsonify({'message': '服务器错误'}), 500
+
+        @self.app.route('/auth/logout', methods=['POST'])
+        def logout_user():
+            # 简单返回成功，实际会话由前端本地管理
+            return jsonify({'message': '已退出登录'}), 200
+
+        @self.app.route('/auth/login', methods=['POST'])
+        def login_user():
+            try:
+                data = request.get_json() or {}
+                phone = (data.get('phone') or '').strip()
+                password = (data.get('password') or '').strip()
+
+                if not phone or not password:
+                    return jsonify({'message': '手机号和密码不能为空'}), 400
+
+                users = self.load_users()['users']
+                matched = next((u for u in users if u.get('phone') == phone and u.get('password') == password), None)
+                if matched:
+                    return jsonify({'message': '登录成功', 'phone': phone}), 200
+                return jsonify({'message': '手机号或密码错误'}), 401
+            except Exception as e:
+                logger.error(f"登录失败: {e}")
+                return jsonify({'message': '服务器错误'}), 500
         
         # 状态查询路由
         @self.app.route('/status')
@@ -836,10 +1036,125 @@ class DogServer:
             try:
                 data = request.get_json() or {}
                 logger.warning(f"[{datetime.now()}] 收到SOS: {data}")
-                # 这里只是记录日志和简单应答，实际可扩展为通知家属等
+                self.broadcast_notification({
+                    'type': 'sos',
+                    'timestamp': datetime.now().isoformat(),
+                    'payload': data,
+                    'message': data.get('message', '患者发出了SOS求助')
+                })
                 return jsonify({'message': 'SOS已接收'}), 200
             except Exception as e:
                 logger.error(f"处理SOS时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/notifications/subscribe')
+        def subscribe_notifications():
+            """基于SSE的通知订阅通道"""
+            client_id = request.args.get('client_id') or 'unknown'
+            q = Queue()
+            logger.info(f"[notifications] SSE subscribe client_id={client_id}")
+            with self.notification_lock:
+                self.notification_subscribers[client_id] = q
+                logger.info(f"[notifications] subscribers={len(self.notification_subscribers)}")
+
+            def gen():
+                # 首次推送一条hello保持兼容
+                yield f"data: {json.dumps({'type': 'hello', 'client_id': client_id}, ensure_ascii=False)}\n\n"
+                try:
+                    while True:
+                        try:
+                            item = q.get(timeout=25)
+                            logger.info(f"[notifications] deliver to={client_id} type={item.get('type')} id={item.get('id')}")
+                            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                        except Exception:
+                            # 心跳，保持连接
+                            logger.debug(f"[notifications] ping to={client_id}")
+                            yield 'data: {"type":"ping"}\n\n'
+                finally:
+                    with self.notification_lock:
+                        if self.notification_subscribers.get(client_id) is q:
+                            del self.notification_subscribers[client_id]
+                        logger.info(f"[notifications] SSE disconnect client_id={client_id} subscribers={len(self.notification_subscribers)}")
+
+            headers = {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive',
+                'Access-Control-Allow-Origin': '*'
+            }
+            return Response(stream_with_context(gen()), headers=headers)
+
+        @self.app.route('/notifications/history', methods=['GET'])
+        def notifications_history():
+            """拉取最近通知历史（用于重连补偿与通知中心列表）"""
+            try:
+                limit = int(request.args.get('limit', 50))
+                limit = max(1, min(limit, 200))
+                with self.notification_history_lock:
+                    items = list(self.notification_history)[-limit:]
+                logger.debug(f"[notifications] history limit={limit} -> {len(items)}")
+                return jsonify(items), 200
+            except Exception as e:
+                logger.error(f"获取通知历史失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/notifications/ack', methods=['POST'])
+        def notifications_ack():
+            """通知确认回执（应用内弹窗已展示/已处理）"""
+            try:
+                data = request.get_json() or {}
+                notif_id = data.get('id')
+                client_id = data.get('client_id')
+                logger.debug(f"[notifications] ack id={notif_id} from_client={client_id}")
+                ack = {
+                    'type': 'ack',
+                    'timestamp': datetime.now().isoformat(),
+                    'payload': {
+                        'id': notif_id,
+                        'client_id': client_id,
+                    },
+                    'message': 'ack'
+                }
+                # ack 也进入推送通道，便于另一端看到“已送达/已查看”
+                self.broadcast_notification(ack)
+                return jsonify({'message': 'ok'}), 200
+            except Exception as e:
+                logger.error(f"通知确认失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/notifications/publish', methods=['POST'])
+        def publish_notification():
+            try:
+                data = request.get_json() or {}
+                # 避免刷屏：只记录关键信息，不打印完整 payload
+                logger.debug(
+                    "[notifications] publish type=%s from=%s to=%s require_delivery=%s",
+                    data.get('type', 'info'),
+                    data.get('from'),
+                    data.get('to'),
+                    bool(data.get('require_delivery', False)),
+                )
+                require_delivery = bool(data.get('require_delivery', False))
+                notif = {
+                    'type': data.get('type', 'info'),
+                    'timestamp': datetime.now().isoformat(),
+                    'payload': data.get('payload', {}),
+                    'message': data.get('message', '有新的通知'),
+                    'from': data.get('from'),
+                    'to': data.get('to'),
+                }
+                self.broadcast_notification(notif)
+
+                if require_delivery:
+                    # 至少存在 1 个订阅者才算“可送达”（不保证对方已看见，但保证连接在线）
+                    with self.notification_lock:
+                        online = len(self.notification_subscribers)
+                    return jsonify({'message': '已推送', 'delivered_possible': online > 0, 'online_subscribers': online, 'id': notif.get('id')}), 200
+
+                return jsonify({'message': '已推送', 'id': notif.get('id')}), 200
+            except Exception as e:
+                logger.error(f"发送通知失败: {e}")
                 return jsonify({'message': '服务器内部错误'}), 500
 
         # ========== 新增 日程管理 API ==========
@@ -881,7 +1196,7 @@ class DogServer:
                     if not updated:
                         return jsonify({'message': '未找到对应日程'}), 404
 
-                if self.save_assets_json({'schedules': schedules}, 'schedules.json'):
+                if self.save_assets_json({'reminders': schedules}, 'reminders.json'):
                     return jsonify({'message': '日程保存成功', 'schedule_id': schedule_id}), 200
                 return jsonify({'message': '保存失败'}), 500
             except Exception as e:
@@ -898,7 +1213,7 @@ class DogServer:
 
                 schedules = self.load_assets_json('reminders.json').get('reminders', [])
                 schedules = [item for item in schedules if item.get('id') != schedule_id]
-                if self.save_assets_json({'schedules': schedules}, 'schedules.json'):
+                if self.save_assets_json({'reminders': schedules}, 'reminders.json'):
                     return jsonify({'message': '删除成功'}), 200
                 return jsonify({'message': '保存失败'}), 500
             except Exception as e:
@@ -1185,6 +1500,89 @@ class DogServer:
                 }), 200
             except Exception as e:
                 logger.error(f"获取陪伴状态时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        # ========== 社区论坛 API ==========
+        @self.app.route('/community/get_posts', methods=['GET'])
+        def get_community_posts():
+            try:
+                data = self.load_assets_json('community.json')
+                return jsonify(data.get('posts', [])), 200
+            except Exception as e:
+                logger.error(f"获取社区帖子失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/community/create_post', methods=['POST'])
+        def create_community_post():
+            try:
+                payload = request.get_json() or {}
+                posts = self.load_assets_json('community.json').get('posts', [])
+                post_id = (max((p.get('id', 0) for p in posts), default=0) + 1)
+                post = {
+                    'id': post_id,
+                    'title': payload.get('title', '').strip(),
+                    'content': payload.get('content', '').strip(),
+                    'author': payload.get('author', '匿名'),
+                    'timestamp': datetime.now().isoformat(),
+                    'likes': 0,
+                    'comments': [],
+                }
+                posts.insert(0, post)
+                if self.save_assets_json({'posts': posts}, 'community.json'):
+                    return jsonify({'message': '发帖成功', 'post_id': post_id}), 200
+                return jsonify({'message': '保存失败'}), 500
+            except Exception as e:
+                logger.error(f"创建帖子失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/community/comment_post', methods=['POST'])
+        def comment_community_post():
+            try:
+                payload = request.get_json() or {}
+                post_id = payload.get('post_id')
+                text = payload.get('text', '').strip()
+                author = payload.get('author', '匿名')
+                if post_id is None or text == '':
+                    return jsonify({'message': '参数缺失'}), 400
+
+                data = self.load_assets_json('community.json')
+                posts = data.get('posts', [])
+                for p in posts:
+                    if p.get('id') == post_id:
+                        comment = {
+                            'id': (max((c.get('id', 0) for c in p.get('comments', [])), default=0) + 1),
+                            'author': author,
+                            'text': text,
+                            'timestamp': datetime.now().isoformat(),
+                        }
+                        p.setdefault('comments', []).append(comment)
+                        if self.save_assets_json({'posts': posts}, 'community.json'):
+                            return jsonify({'message': '评论成功'}), 200
+                        return jsonify({'message': '保存失败'}), 500
+
+                return jsonify({'message': '未找到帖子'}), 404
+            except Exception as e:
+                logger.error(f"评论失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/community/like_post', methods=['POST'])
+        def like_community_post():
+            try:
+                payload = request.get_json() or {}
+                post_id = payload.get('post_id')
+                if post_id is None:
+                    return jsonify({'message': '参数缺失'}), 400
+                data = self.load_assets_json('community.json')
+                posts = data.get('posts', [])
+                for p in posts:
+                    if p.get('id') == post_id:
+                        p['likes'] = int(p.get('likes', 0)) + 1
+                        if self.save_assets_json({'posts': posts}, 'community.json'):
+                            return jsonify({'message': '已点赞', 'likes': p['likes']}), 200
+                        return jsonify({'message': '保存失败'}), 500
+                return jsonify({'message': '未找到帖子'}), 404
+            except Exception as e:
+                logger.error(f"点赞失败: {e}")
                 return jsonify({'message': '服务器内部错误'}), 500
 
         # ========== 视频直播 API ==========

@@ -312,9 +312,10 @@ class _MemoryScreenState extends State<MemoryScreen> {
     final cardHeight = isTimeline ? null : null;
     
     return Card(
-      elevation: 2,
+      elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200, width: 1),
       ),
       child: InkWell(
         onTap: () => _showMemoryDetail(memory, theme),
@@ -324,14 +325,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.lightBlue.shade50,
-                Colors.white,
-              ],
-            ),
+            color: Colors.white,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

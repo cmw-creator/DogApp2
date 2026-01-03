@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'screens/auth_screen.dart';
 // 导入拆分后的页面
 import 'screens/dog_screen.dart';
 import 'screens/today_screen.dart';
@@ -10,11 +11,18 @@ import 'screens/help_screen.dart';
 import 'screens/manage_screen.dart';
 import 'screens/monitor_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/community_screen.dart';
+import 'screens/notification_screen.dart';
 import 'services/api.dart';
+import 'services/local_store.dart';
+import 'services/in_app_notification.dart';
+import 'services/notification_service.dart';
 
-void main() async {
-  // 尝试启动本地测试后端（桌面调试时模拟 Kivy 中在 __main__ 里启动 DogServer）
-  startTestBackend();
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await LocalStore.ensureInit();
+  // 桌面调试时可手动开启本地测试后端；默认关闭避免无关日志。
+  // startTestBackend();
 
   runApp(const MyApp());
 }
@@ -26,7 +34,6 @@ Process? _backendProcess;
 Future<void> startTestBackend() async {
   if (kIsWeb) return;
   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-    debugPrint('startTestBackend: 非桌面平台，跳过启动测试后端');
     return;
   }
 
@@ -52,31 +59,17 @@ Future<void> startTestBackend() async {
 
     if (proc != null) {
       _backendProcess = proc;
-      // 输出后端日志到 Flutter 控制台
-      proc.stdout
-          .transform(utf8.decoder)
-          .listen((data) => debugPrint('[backend] $data'));
-      proc.stderr
-          .transform(utf8.decoder)
-          .listen((data) => debugPrint('[backend][err] $data'));
-      debugPrint('测试后端已启动 (pid=${proc.pid})');
+      // 如需查看后端日志，可在这里恢复 stdout/stderr 转发。
 
       // 在收到 SIGINT / SIGTERM 时尝试终止后端（桌面调试友好）
       try {
-        ProcessSignal.sigint.watch().listen((_) {
-          debugPrint('收到 SIGINT，尝试停止测试后端');
-          stopTestBackend();
-        });
-        ProcessSignal.sigterm.watch().listen((_) {
-          debugPrint('收到 SIGTERM，尝试停止测试后端');
-          stopTestBackend();
-        });
+        ProcessSignal.sigint.watch().listen((_) => stopTestBackend());
+        ProcessSignal.sigterm.watch().listen((_) => stopTestBackend());
       } catch (_) {
         // 某些平台/环境不支持信号监听，忽略
       }
     }
   } catch (e) {
-    debugPrint('无法启动测试后端: $e');
   }
 }
 
@@ -85,11 +78,9 @@ void stopTestBackend() {
   try {
     if (_backendProcess != null) {
       _backendProcess!.kill(ProcessSignal.sigterm);
-      debugPrint('已发送终止信号到测试后端 (pid=${_backendProcess!.pid})');
       _backendProcess = null;
     }
   } catch (e) {
-    debugPrint('停止测试后端时出错: $e');
   }
 }
 
@@ -104,8 +95,19 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
+        scaffoldBackgroundColor: Colors.white,
+        cardTheme: CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.grey.shade200, width: 1),
+          ),
+        ),
       ),
       home: const RootPage(),
+      builder: (context, child) {
+        return InAppNotificationOverlay(child: child ?? const SizedBox.shrink());
+      },
       debugShowCheckedModeBanner: false,
     );
   }
@@ -123,16 +125,113 @@ class _RootPageState extends State<RootPage> {
   String userType = 'family';
   int _currentIndex = 0;
 
+  // 登录与绑定状态
+  bool _initialized = false;
+  bool _familyLoggedIn = false;
+  String? _patientCode;
+  String? _bindCode;
+  String? _boundPatientCode;
+
   // 服务器地址可在 Settings 页面修改（这里是内存保存示例）
   String serverUrl = 'http://127.0.0.1:5000';
 
+  @override
+  void initState() {
+    super.initState();
+    _initState();
+
+    // 全局订阅通知流并弹窗。避免仅在特定页面监听导致“无弹窗”。
+    NotificationService.instance.stream.listen((event) {
+      final type = event['type']?.toString() ?? 'info';
+      if (type == 'ping' || type == 'hello' || type == 'ack') return;
+
+      final message = event['message']?.toString() ?? '收到新通知';
+      InAppNotification.instance.show(
+        title: type == 'sos' ? 'SOS' : '通知：$type',
+        message: message,
+        severity: type == 'sos'
+            ? InAppNotificationSeverity.danger
+            : InAppNotificationSeverity.info,
+        actionLabel: '查看通知',
+        onAction: () {
+          if (!mounted) return;
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
+          );
+        },
+      );
+    });
+
+    // 等首帧后再标记 UI ready 并启动订阅，避免启动早期事件无人监听而“看起来没反应”。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.instance.setUiReady();
+      NotificationService.instance.start();
+    });
+  }
+
+  Future<void> _initState() async {
+    await LocalStore.ensureInit();
+    setState(() {
+      _familyLoggedIn = LocalStore.isLoggedIn;
+      _patientCode = LocalStore.patientCode;
+      _bindCode = LocalStore.bindCode;
+      _boundPatientCode = LocalStore.boundPatientCode;
+      _initialized = true;
+    });
+  }
+
+  Future<void> _handleLogin(String phone, String password) async {
+    final ok = await Api.loginUser(phone: phone, password: password);
+    if (ok && mounted) {
+      await LocalStore.saveSession(phone);
+      setState(() => _familyLoggedIn = true);
+    }
+  }
+
+  Future<void> _handleRegister(String phone, String password) async {
+    final ok = await Api.registerUser(phone: phone, password: password);
+    if (ok && mounted) {
+      await LocalStore.saveSession(phone);
+      setState(() => _familyLoggedIn = true);
+    }
+  }
+
+  Future<void> _handleLogout() async {
+    await Api.logoutUser();
+    await LocalStore.logout();
+    if (mounted) {
+      setState(() {
+        _familyLoggedIn = false;
+        _currentIndex = 0;
+      });
+    }
+  }
+
+  Future<void> _handleRegenerateBindCode() async {
+    await LocalStore.regenerateBindCode();
+    if (mounted) setState(() => _bindCode = LocalStore.bindCode);
+  }
+
+  Future<void> _handleBindPatient(String patientCode, String bindCode) async {
+    // 简单本地校验：只有与患者端生成的 code 匹配才视为成功
+    if (patientCode == LocalStore.patientCode && bindCode == LocalStore.bindCode) {
+      await LocalStore.setBoundPatient(patientCode);
+      if (mounted) setState(() => _boundPatientCode = patientCode);
+    }
+  }
+
   // 根据 userType 构建页面列表与导航项
-  List<Widget> get _patientPages => const [
-        DogScreen(),
-        TodayScreen(),
-        MemoryScreen(),
-        HelpScreen(),
-        SettingsScreen(),
+  List<Widget> get _patientPages => [
+        const DogScreen(),
+        const TodayScreen(),
+        const MemoryScreen(),
+        const HelpScreen(),
+        SettingsScreen(
+          userType: SettingsUserType.patient,
+          patientCode: _patientCode,
+          bindCode: _bindCode,
+          onRegenerateBindCode: _handleRegenerateBindCode,
+        ),
       ];
 
   List<BottomNavigationBarItem> get _patientNavItems => const [
@@ -151,25 +250,52 @@ class _RootPageState extends State<RootPage> {
           });
         }),
         const MonitorScreen(),
+        const CommunityScreen(),
         SettingsScreen(
+          userType: SettingsUserType.family,
           initialServerUrl: serverUrl,
+          boundPatientCode: _boundPatientCode,
+          onBindPatient: _handleBindPatient,
           onServerUrlSaved: (url) {
             setState(() {
               serverUrl = url;
               Api.serverUrl = url;
             });
           },
+          onLogout: _handleLogout,
         ),
       ];
 
   List<BottomNavigationBarItem> get _familyNavItems => const [
         BottomNavigationBarItem(icon: Icon(Icons.group), label: '管理'),
         BottomNavigationBarItem(icon: Icon(Icons.monitor), label: '监控'),
+        BottomNavigationBarItem(icon: Icon(Icons.people), label: '社区'),
         BottomNavigationBarItem(icon: Icon(Icons.settings), label: '设置'),
       ];
 
   @override
   Widget build(BuildContext context) {
+    if (!_initialized) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (userType == 'family' && !_familyLoggedIn) {
+      return AuthScreen(
+        onLogin: (phone, pwd) async {
+          await _handleLogin(phone, pwd);
+          if (mounted && _familyLoggedIn) setState(() => _currentIndex = 0);
+          return _familyLoggedIn;
+        },
+        onRegister: (phone, pwd) async {
+          await _handleRegister(phone, pwd);
+          if (mounted && _familyLoggedIn) setState(() => _currentIndex = 0);
+          return _familyLoggedIn;
+        },
+      );
+    }
+
     final pages = userType == 'patient' ? _patientPages : _familyPages;
     final navItems = userType == 'patient' ? _patientNavItems : _familyNavItems;
 
@@ -177,6 +303,14 @@ class _RootPageState extends State<RootPage> {
       appBar: AppBar(
         title: Text(userType == 'patient' ? '患者端' : '家属端'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
+              );
+            },
+          ),
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'switch') {
