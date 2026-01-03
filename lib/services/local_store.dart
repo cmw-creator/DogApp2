@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'health_data.dart';
@@ -11,6 +10,10 @@ class LocalStore {
   static const _kPatientCode = 'patient_code';
   static const _kBindCode = 'bind_code';
   static const _kBoundPatientCode = 'bound_patient_code';
+  static const _kBoundPatientByAccount = 'bound_patient_by_account';
+
+  static const _kFixedPatientCode = 'PAT-TEST-001';
+  static const _kFixedBindCode = 'BIND-TEST-20260103';
   
   // 健康数据
   static const _kHealthMetrics = 'health_metrics'; // JSON列表
@@ -24,29 +27,52 @@ class LocalStore {
 
   static void _ensureCodes() {
     if (_prefs == null) return;
-    if (!_prefs!.containsKey(_kPatientCode)) {
-      _prefs!.setString(_kPatientCode, _generatePatientCode());
-    }
-    if (!_prefs!.containsKey(_kBindCode)) {
-      _prefs!.setString(_kBindCode, _generateBindCode());
+    // 测试场景使用固定编码，便于调试与分享
+    _prefs!.setString(_kPatientCode, _kFixedPatientCode);
+    _prefs!.setString(_kBindCode, _kFixedBindCode);
+
+    // 初始化按账号存储的绑定映射
+    if (!_prefs!.containsKey(_kBoundPatientByAccount)) {
+      _prefs!.setString(_kBoundPatientByAccount, jsonEncode(<String, String>{}));
     }
   }
 
   static String _generatePatientCode() {
-    final rand = Random();
-    final number = rand.nextInt(900000) + 100000; // 6 digits
-    return 'PAT-$number';
+    return _kFixedPatientCode;
   }
 
   static String _generateBindCode() {
-    final rand = Random();
-    final number = rand.nextInt(900000) + 100000; // 6 digits
-    return number.toString();
+    return _kFixedBindCode;
   }
 
   static String get patientCode => _prefs?.getString(_kPatientCode) ?? 'PAT-000000';
   static String get bindCode => _prefs?.getString(_kBindCode) ?? '000000';
   static String? get boundPatientCode => _prefs?.getString(_kBoundPatientCode);
+
+  // 账户级绑定信息
+  static Map<String, String> _getBoundMap() {
+    if (_prefs == null) return {};
+    final raw = _prefs!.getString(_kBoundPatientByAccount);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return decoded.map((k, v) => MapEntry(k.toString(), v.toString()));
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  static Future<void> _saveBoundMap(Map<String, String> map) async {
+    if (_prefs == null) return;
+    await _prefs!.setString(_kBoundPatientByAccount, jsonEncode(map));
+  }
+
+  static String? getBoundPatientForAccount(String? phone) {
+    if (phone == null || phone.isEmpty) return null;
+    final map = _getBoundMap();
+    return map[phone];
+  }
 
   static Future<void> regenerateBindCode() async {
     if (_prefs == null) return;
@@ -58,9 +84,22 @@ class LocalStore {
     await _prefs!.setString(_kBoundPatientCode, code);
   }
 
+  static Future<void> setBoundPatientForAccount({required String phone, required String code}) async {
+    if (_prefs == null) return;
+    final map = _getBoundMap();
+    map[phone] = code;
+    await _saveBoundMap(map);
+    await _prefs!.setString(_kBoundPatientCode, code);
+  }
+
   static Future<void> clearBinding() async {
     if (_prefs == null) return;
     await _prefs!.remove(_kBoundPatientCode);
+    if (familyPhone != null) {
+      final map = _getBoundMap();
+      map.remove(familyPhone!);
+      await _saveBoundMap(map);
+    }
   }
 
   // Auth session（仅本地会话状态）

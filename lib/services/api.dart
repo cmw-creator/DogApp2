@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 
 class Api {
@@ -8,6 +9,15 @@ class Api {
   static Map<String, String> get _headers => {
         'Content-Type': 'application/json',
       };
+
+  /// 构建后端 assets 资源的完整 URL
+  static String assetUrl(String? relativePath) {
+    if (relativePath == null || relativePath.isEmpty) return '';
+    final clean = relativePath.startsWith('/')
+        ? relativePath.substring(1)
+        : relativePath;
+    return '$serverUrl/assets/$clean';
+  }
 
   // 家属端登录
   static Future<bool> loginUser({required String phone, required String password}) async {
@@ -446,11 +456,63 @@ class Api {
   static Future<Map<String, dynamic>?> getPhotoInfo() async {
     try {
       final resp = await http
-          .get(Uri.parse('$serverUrl/get_photo_info'));
-    }catch (_) {
-      //return false;
+          .get(Uri.parse('$serverUrl/get_photo_info'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // 更新/新增照片：POST /update_photo_info
+  static Future<bool> updatePhotoInfo(Map<String, dynamic> payload) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/update_photo_info'),
+              headers: _headers, body: json.encode(payload))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
     }
-  }  
+  }
+
+  // 删除照片：POST /delete_photo_info
+  static Future<bool> deletePhotoInfo(String photoId) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/delete_photo_info'),
+              headers: _headers, body: json.encode({'photo_id': photoId}))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 上传记忆库图片：POST /upload_photo_image
+  static Future<Map<String, dynamic>?> uploadPhotoImage(
+      {required String photoId, required String filePath}) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return null;
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$serverUrl/upload_photo_image'),
+      );
+      request.fields['photo_id'] = photoId;
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
+
+      final streamed = await request.send().timeout(const Duration(seconds: 15));
+      final resp = await http.Response.fromStream(streamed);
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
   // 患者活动监控：上传活动记录
   static Future<bool> uploadActivity(String activityType, String description) async {
     try {

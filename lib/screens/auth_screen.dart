@@ -31,7 +31,7 @@ class _AuthScreenState extends State<AuthScreen> {
       setState(() => _error = '手机号和密码不能为空');
       return;
     }
-      if (!RegExp(r'^1\d{10}$').hasMatch(phone)) {
+    if (!_isLogin && !RegExp(r'^1\d{10}$').hasMatch(phone)) {
       setState(() => _error = '手机号格式不正确，需要11位数字且以1开头');
       return;
     }

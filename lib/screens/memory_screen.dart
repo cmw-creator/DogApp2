@@ -29,15 +29,29 @@ class _MemoryScreenState extends State<MemoryScreen> {
         // 将API数据转换为回忆格式
         final List<Map<String, dynamic>> loadedMemories = [];
         photoData.forEach((key, value) {
+          final Map<String, dynamic> item = Map<String, dynamic>.from(value);
+          final description = item['description']?.toString() ?? '';
+          final title = item['title']?.toString() ?? '';
+          final eventDate = item['event_date']?.toString();
+          final updateTime = item['update_time']?.toString();
+          final imageFile = item['image_file']?.toString() ?? '';
+          final location = item['location']?.toString() ?? '';
+
           loadedMemories.add({
             'id': key,
-            'title': _extractTitle(value['description'] ?? ''),
-            'description': value['description'] ?? '',
-            'date': value['update_time'] ?? '',
             'photo_id': key,
+            'title': title.isNotEmpty ? title : _extractTitle(description),
+            'description': description,
+            'date': eventDate?.isNotEmpty == true ? eventDate : (updateTime ?? ''),
             'media_type': 'image',
+            'image_url': Api.assetUrl(imageFile),
+            'location': location,
+            'tags': _toStringList(item['tags']),
+            'people': _toStringList(item['people']),
           });
         });
+
+        loadedMemories.sort((a, b) => (b['date'] ?? '').compareTo(a['date'] ?? ''));
         setState(() => memories = loadedMemories);
       } else {
         // 如果没有API数据，使用示例数据
@@ -99,6 +113,16 @@ class _MemoryScreenState extends State<MemoryScreen> {
     // 取前10个字符作为标题
     if (description.length <= 10) return description;
     return '${description.substring(0, 10)}...';
+  }
+
+  List<String> _toStringList(dynamic value) {
+    if (value is List) {
+      return value.map((e) => e.toString()).toList();
+    }
+    if (value is String && value.isNotEmpty) {
+      return value.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    }
+    return [];
   }
 
   String _formatDate(String? dateStr) {
@@ -213,7 +237,8 @@ class _MemoryScreenState extends State<MemoryScreen> {
                   crossAxisCount: 2,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
-                  childAspectRatio: 0.85,
+                  // 增加单元格可用高度，避免内容溢出
+                  childAspectRatio: 0.72,
                 ),
                 delegate: SliverChildBuilderDelegate(
                   (context, index) => _buildMemoryCard(memories[index], theme),
@@ -309,8 +334,11 @@ class _MemoryScreenState extends State<MemoryScreen> {
   }
 
   Widget _buildMemoryCard(Map<String, dynamic> memory, ThemeData theme, {bool isTimeline = false}) {
-    final cardHeight = isTimeline ? null : null;
-    
+    final imageUrl = memory['image_url']?.toString() ?? '';
+    final tags = _toStringList(memory['tags']);
+    final displayTags = tags.length > 3 ? tags.sublist(0, 3) : tags;
+    final imageHeight = isTimeline ? 200.0 : 140.0;
+
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -321,42 +349,21 @@ class _MemoryScreenState extends State<MemoryScreen> {
         onTap: () => _showMemoryDetail(memory, theme),
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          height: cardHeight,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             color: Colors.white,
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 图片占位符或实际图片
-              Expanded(
-                flex: isTimeline ? 0 : 3,
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    color: Colors.lightBlue.shade100,
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // 图片占位符
-                      Center(
-                        child: Icon(
-                          Icons.photo,
-                          size: isTimeline ? 40 : 60,
-                          color: Colors.lightBlue.shade300,
-                        ),
-                      ),
-                      // 如果有实际图片URL，可以在这里显示
-                      // Image.network(imageUrl, fit: BoxFit.cover)
-                    ],
-                  ),
-                ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: _buildImage(imageUrl, height: imageHeight),
               ),
-              if (!isTimeline) const SizedBox(height: 12),
+              const SizedBox(height: 12),
               // 标题
               Text(
                 memory['title'] ?? '美好回忆',
@@ -369,17 +376,28 @@ class _MemoryScreenState extends State<MemoryScreen> {
               ),
               const SizedBox(height: 4),
               // 描述
-              Expanded(
-                flex: isTimeline ? 0 : 2,
-                child: Text(
-                  memory['description'] ?? '',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.blue.shade700,
-                  ),
-                  maxLines: isTimeline ? 2 : 3,
-                  overflow: TextOverflow.ellipsis,
+              Text(
+                memory['description'] ?? '',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.blue.shade700,
                 ),
+                maxLines: isTimeline ? 3 : 2,
+                overflow: TextOverflow.ellipsis,
               ),
+              if (displayTags.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: -4,
+                  children: displayTags
+                      .map((t) => Chip(
+                            label: Text(t, style: const TextStyle(fontSize: 11)),
+                            backgroundColor: Colors.lightBlue.shade50,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                          ))
+                      .toList(),
+                ),
+              ],
               const SizedBox(height: 8),
               // 日期
               Row(
@@ -423,20 +441,9 @@ class _MemoryScreenState extends State<MemoryScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 图片预览区域
-              Container(
-                height: 200,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.lightBlue.shade100,
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.photo,
-                    size: 80,
-                    color: Colors.lightBlue.shade300,
-                  ),
-                ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: _buildImage(memory['image_url']?.toString(), height: 220),
               ),
               const SizedBox(height: 16),
               Row(
@@ -460,6 +467,42 @@ class _MemoryScreenState extends State<MemoryScreen> {
                 memory['description'] ?? '',
                 style: theme.textTheme.bodyLarge,
               ),
+              if ((memory['location']?.toString().isNotEmpty ?? false)) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(Icons.place, size: 18, color: Colors.blue.shade600),
+                    const SizedBox(width: 6),
+                    Text(memory['location'].toString()),
+                  ],
+                ),
+              ],
+              if (_toStringList(memory['people']).isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: -6,
+                  children: _toStringList(memory['people'])
+                      .map((p) => Chip(
+                            avatar: const Icon(Icons.person, size: 16),
+                            label: Text(p),
+                          ))
+                      .toList(),
+                ),
+              ],
+              if (_toStringList(memory['tags']).isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: -6,
+                  children: _toStringList(memory['tags'])
+                      .map((t) => Chip(
+                            label: Text('#$t'),
+                            backgroundColor: Colors.lightBlue.shade50,
+                          ))
+                      .toList(),
+                ),
+              ],
             ],
           ),
         ),
@@ -470,6 +513,29 @@ class _MemoryScreenState extends State<MemoryScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildImage(String? url, {double height = 180}) {
+    return Container(
+      height: height,
+      width: double.infinity,
+      color: Colors.lightBlue.shade50,
+      child: url != null && url.isNotEmpty
+          ? Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Center(
+                child: Icon(Icons.broken_image, size: 48, color: Colors.blue.shade200),
+              ),
+            )
+          : Center(
+              child: Icon(
+                Icons.photo,
+                size: 64,
+                color: Colors.lightBlue.shade300,
+              ),
+            ),
     );
   }
 }

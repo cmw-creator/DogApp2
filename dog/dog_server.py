@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, stream_with_context, Response
+from flask import Flask, request, jsonify, send_from_directory, stream_with_context, Response, abort
 from flask_cors import CORS
 import threading
 import time
@@ -616,6 +616,17 @@ class DogServer:
                 return send_from_directory(self.app.config['UPLOAD_FOLDER'], filename)
             except FileNotFoundError:
                 return jsonify({'message': '图片未找到'}), 404
+
+        # 访问 assets 下的静态资源（含记忆库图片）
+        @self.app.route('/assets/<path:filename>')
+        def get_asset(filename):
+            try:
+                safe_path = os.path.normpath(filename)
+                if safe_path.startswith('..'):
+                    return abort(400)
+                return send_from_directory(self.app.config['ASSETS_FOLDER'], safe_path)
+            except FileNotFoundError:
+                return jsonify({'message': '资源未找到'}), 404
         
         # GPS数据上传路由
         @self.app.route('/upload_gps', methods=['POST'])
@@ -876,18 +887,38 @@ class DogServer:
                 photo_id = data.get('photo_id')
                 description = data.get('description', '')
                 audio_file = data.get('audio_file', '')
+                title = data.get('title', '')
+                event_date = data.get('event_date', '')
+                image_file = data.get('image_file', '')
+                location = data.get('location', '')
+                tags = data.get('tags', [])
+                people = data.get('people', [])
+                emotion = data.get('emotion', '')
+
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(',') if t.strip()]
+                if isinstance(people, str):
+                    people = [p.strip() for p in people.split(',') if p.strip()]
                 
                 if not photo_id:
                     return jsonify({'message': '缺少photo_id字段'}), 400
                 
                 # 加载现有数据
                 photo_info = self.load_assets_json('photo_info.json')
+                existing = photo_info.get(photo_id, {})
                 
                 # 更新或添加
                 photo_info[photo_id] = {
-                    'description': description,
+                    'title': title or existing.get('title', ''),
+                    'description': description or existing.get('description', ''),
+                    'event_date': event_date or existing.get('event_date', ''),
                     'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'audio_file': audio_file
+                    'image_file': image_file or existing.get('image_file', ''),
+                    'audio_file': audio_file or existing.get('audio_file', ''),
+                    'location': location or existing.get('location', ''),
+                    'tags': tags or existing.get('tags', []),
+                    'people': people or existing.get('people', []),
+                    'emotion': emotion or existing.get('emotion', '')
                 }
                 
                 if self.save_assets_json(photo_info, 'photo_info.json'):
@@ -960,7 +991,8 @@ class DogServer:
                     return jsonify({
                         'message': '照片上传成功!',
                         'photo_id': photo_id,
-                        'file_path': filename
+                        'file_path': filename,
+                        'asset_path': f"photo_detector/{filename}"
                     }), 200
                 else:
                     return jsonify({'message': '不支持的文件类型'}), 400

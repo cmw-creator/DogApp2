@@ -1,8 +1,7 @@
 import 'dart:async';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../services/api.dart';
-import '../services/local_store.dart';
-import '../services/health_data.dart';
 import '../services/notification_service.dart';
 import '../services/in_app_notification.dart';
 import 'notification_screen.dart';
@@ -20,9 +19,9 @@ class _ManageScreenState extends State<ManageScreen>
   bool _loading = true;
   List<Map<String, dynamic>> _faces = [];
   List<Map<String, dynamic>> _questions = [];
+  List<Map<String, dynamic>> _photoMemories = [];
   Map<String, dynamic> _medicines = {};
   List<Map<String, dynamic>> _schedules = [];
-  List<HealthMetrics> _healthMetrics = [];
   StreamSubscription<Map<String, dynamic>>? _notifSub;
 
   late final TabController _tabController;
@@ -30,7 +29,7 @@ class _ManageScreenState extends State<ManageScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _initNotificationListener();
     _refreshAll();
   }
@@ -74,18 +73,37 @@ class _ManageScreenState extends State<ManageScreen>
     setState(() => _loading = true);
     await Future.wait([
       _loadFaceInfo(),
+      _loadPhotoMemories(),
       _loadQuestions(),
       _loadMedicine(),
       _loadSchedule(),
-      _loadHealthMetrics(),
     ]);
     setState(() => _loading = false);
   }
 
-  Future<void> _loadHealthMetrics() async {
-    await LocalStore.ensureInit();
-    final metrics = LocalStore.getHealthMetrics(days: 30);
-    setState(() => _healthMetrics = metrics);
+  Future<void> _loadQuestions() async {
+    final data = await Api.getFamilyQuestions();
+    if (data != null) {
+      setState(() => _questions =
+          data.map((e) => Map<String, dynamic>.from(e)).toList());
+    }
+  }
+
+  Future<void> _loadPhotoMemories() async {
+    final data = await Api.getPhotoInfo();
+    if (data != null) {
+      final list = data.entries
+          .map((e) => {
+                'photo_id': e.key,
+                ...Map<String, dynamic>.from((e.value ?? {}) as Map),
+              })
+          .toList();
+
+      list.sort((a, b) =>
+          ((b['event_date'] ?? b['update_time'] ?? '') as String)
+              .compareTo((a['event_date'] ?? a['update_time'] ?? '') as String));
+      setState(() => _photoMemories = list);
+    }
   }
 
   Future<void> _loadFaceInfo() async {
@@ -95,14 +113,6 @@ class _ManageScreenState extends State<ManageScreen>
           .map((entry) =>
               {'id': entry.key, ...Map<String, dynamic>.from(entry.value)})
           .toList());
-    }
-  }
-
-  Future<void> _loadQuestions() async {
-    final data = await Api.getFamilyQuestions();
-    if (data != null) {
-      setState(() => _questions =
-          data.map((e) => Map<String, dynamic>.from(e)).toList());
     }
   }
 
@@ -162,6 +172,120 @@ class _ManageScreenState extends State<ManageScreen>
     if (result != null) {
       await Api.updateFaceInfo(result);
       _loadFaceInfo();
+    }
+  }
+
+  Future<void> _showPhotoDialog({Map<String, dynamic>? photo}) async {
+    final idCtl = TextEditingController(text: photo != null ? photo['photo_id'] : '');
+    final titleCtl =
+        TextEditingController(text: photo != null ? photo['title'] ?? '' : '');
+    final dateCtl = TextEditingController(
+        text: photo != null ? (photo['event_date'] ?? '') : '');
+    final locationCtl = TextEditingController(
+        text: photo != null ? (photo['location'] ?? '') : '');
+    final tagsCtl = TextEditingController(
+        text: photo != null ? _joinList(photo['tags']) : '');
+    final peopleCtl = TextEditingController(
+        text: photo != null ? _joinList(photo['people']) : '');
+    final descCtl = TextEditingController(
+        text: photo != null ? (photo['description'] ?? '') : '');
+
+    String imagePath = photo != null ? (photo['image_file'] ?? '') : '';
+
+    final payload = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text(photo == null ? '新增回忆照片' : '编辑回忆照片'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: idCtl,
+                  decoration: const InputDecoration(labelText: '照片编号（例：photo_00004）'),
+                  enabled: photo == null,
+                ),
+                TextField(
+                  controller: titleCtl,
+                  decoration: const InputDecoration(labelText: '标题'),
+                ),
+                TextField(
+                  controller: dateCtl,
+                  decoration: const InputDecoration(labelText: '拍摄日期，格式：YYYY-MM-DD'),
+                ),
+                TextField(
+                  controller: locationCtl,
+                  decoration: const InputDecoration(labelText: '地点（可选）'),
+                ),
+                TextField(
+                  controller: tagsCtl,
+                  decoration: const InputDecoration(labelText: '标签，逗号分隔（可选）'),
+                ),
+                TextField(
+                  controller: peopleCtl,
+                  decoration: const InputDecoration(labelText: '人物，逗号分隔（可选）'),
+                ),
+                TextField(
+                  controller: descCtl,
+                  decoration: const InputDecoration(labelText: '描述'),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        imagePath.isEmpty
+                            ? '未选择图片'
+                            : '已上传：$imagePath',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        final id = idCtl.text.trim();
+                        if (id.isEmpty) return;
+                        final uploaded = await _pickAndUploadImage(id);
+                        if (uploaded != null) {
+                          setLocal(() => imagePath = uploaded);
+                        }
+                      },
+                      icon: const Icon(Icons.cloud_upload),
+                      label: const Text('上传图片'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            ElevatedButton(
+              onPressed: () {
+                final id = _normalizePhotoId(idCtl.text.trim());
+                if (id.isEmpty) return;
+                Navigator.pop(ctx, {
+                  'photo_id': id,
+                  'title': titleCtl.text.trim(),
+                  'event_date': dateCtl.text.trim(),
+                  'location': locationCtl.text.trim(),
+                  'tags': _splitToList(tagsCtl.text),
+                  'people': _splitToList(peopleCtl.text),
+                  'description': descCtl.text.trim(),
+                  'image_file': imagePath,
+                });
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (payload != null) {
+      await Api.updatePhotoInfo(payload);
+      _loadPhotoMemories();
     }
   }
 
@@ -245,14 +369,19 @@ class _ManageScreenState extends State<ManageScreen>
     }
   }
 
-  Future<void> _deleteQuestion(int index) async {
-    await Api.deleteFamilyQuestion(index);
-    _loadQuestions();
-  }
-
   Future<void> _deleteMedicine(String medId) async {
     await Api.deleteMedicine(medId);
     _loadMedicine();
+  }
+
+  Future<void> _deletePhoto(String photoId) async {
+    await Api.deletePhotoInfo(photoId);
+    _loadPhotoMemories();
+  }
+
+  Future<void> _deleteQuestion(int index) async {
+    await Api.deleteFamilyQuestion(index);
+    _loadQuestions();
   }
 
   Future<void> _toggleSchedule(Map<String, dynamic> schedule, bool? value) async {
@@ -386,20 +515,6 @@ class _ManageScreenState extends State<ManageScreen>
                 label: const Text('新增日程'),
                 onPressed: () => _showScheduleDialog(),
               ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.alarm),
-                label: const Text('马上提醒'),
-                onPressed: () {
-                  final now = DateTime.now().add(const Duration(minutes: 5));
-                  final timeStr =
-                      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-                  _showScheduleDialog(
-                    initialTime: timeStr,
-                    initialEvent: '临时提醒',
-                  );
-                },
-              ),
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.refresh),
@@ -453,62 +568,142 @@ class _ManageScreenState extends State<ManageScreen>
   }
 
   Widget _buildMemoryTab() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              ElevatedButton.icon(
-                onPressed: () => _showMemoryDialog(),
-                icon: const Icon(Icons.add),
-                label: const Text('新增记忆'),
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                tooltip: '刷新记忆库',
-                onPressed: _loadQuestions,
-              )
-            ],
-          ),
-        ),
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _questions.isEmpty
-                  ? const Center(child: Text('暂无记忆问答'))
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _questions.length,
-                      itemBuilder: (_, index) {
-                        final item = _questions[index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ListTile(
-                            title: Text('Q${index + 1} ${item['question'] ?? ''}'),
-                            subtitle: Text(item['answer'] ?? ''),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  onPressed: () =>
-                                      _showMemoryDialog(question: item, index: index),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  onPressed: () => _deleteQuestion(index),
-                                ),
-                              ],
+    final spinner = _loading && _photoMemories.isEmpty && _questions.isEmpty;
+
+    return spinner
+        ? const Center(child: CircularProgressIndicator())
+        : RefreshIndicator(
+            onRefresh: () async {
+              await _loadPhotoMemories();
+              await _loadQuestions();
+            },
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              children: [
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => _showPhotoDialog(),
+                      icon: const Icon(Icons.add_a_photo),
+                      label: const Text('新增回忆照片'),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.refresh),
+                      tooltip: '刷新回忆数据',
+                      onPressed: _loadPhotoMemories,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (_photoMemories.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Center(child: Text('暂无回忆照片')),
+                  )
+                else
+                  ..._photoMemories.map(
+                    (item) {
+                      final imageUrl = Api.assetUrl(item['image_file']?.toString());
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: ListTile(
+                          leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: SizedBox(
+                              width: 56,
+                              height: 56,
+                              child: imageUrl.isNotEmpty
+                                  ? Image.network(imageUrl, fit: BoxFit.cover)
+                                  : Container(
+                                      color: Colors.grey.shade200,
+                                      child: const Icon(Icons.photo, color: Colors.grey),
+                                    ),
                             ),
                           ),
-                        );
-                      },
+                          title: Text(item['title']?.toString() ?? '未命名回忆'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if ((item['event_date'] ?? '').toString().isNotEmpty)
+                                Text('日期: ${item['event_date']}',
+                                    style: const TextStyle(fontSize: 12)),
+                              if ((item['description'] ?? '').toString().isNotEmpty)
+                                Text(
+                                  item['description'],
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: () => _showPhotoDialog(photo: item),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: () => _deletePhoto(item['photo_id']),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => _showMemoryDialog(),
+                      icon: const Icon(Icons.add_comment),
+                      label: const Text('新增记忆问答'),
                     ),
-        ),
-      ],
-    );
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.refresh),
+                      tooltip: '刷新问答',
+                      onPressed: _loadQuestions,
+                    ),
+                  ],
+                ),
+                if (_questions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Center(child: Text('暂无记忆问答')),
+                  )
+                else
+                  ...List.generate(_questions.length, (index) {
+                    final item = _questions[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        title: Text('Q${index + 1} ${item['question'] ?? ''}'),
+                        subtitle: Text(item['answer'] ?? ''),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _showMemoryDialog(question: item, index: index),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () => _deleteQuestion(index),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          );
   }
 
   Widget _buildMedicineTab() {
@@ -575,171 +770,6 @@ class _ManageScreenState extends State<ManageScreen>
     );
   }
 
-  Widget _buildHealthTab() {
-    final adherencePercent = LocalStore.getMedicineAdherenceRate().clamp(0, 100);
-    final adherenceRatio = adherencePercent / 100.0;
-    
-    return Column(
-      children: [
-        // Adherence Badge
-        Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: Colors.teal.shade300, width: 1.5),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '用药遵循率',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                    Text(
-                      '${(adherenceRatio * 100).toStringAsFixed(1)}%',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.2),
-                ),
-                child: Center(
-                      child: Text(
-                        '${adherencePercent.toStringAsFixed(0)}%',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Health Metrics List
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _healthMetrics.isEmpty
-                  ? const Center(child: Text('暂无健康数据'))
-                  : RefreshIndicator(
-                      onRefresh: _loadHealthMetrics,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: _healthMetrics.length,
-                        itemBuilder: (_, index) {
-                          final metric = _healthMetrics[_healthMetrics.length - 1 - index]; // 倒序
-                          final dateStr = '${metric.timestamp.year}-${metric.timestamp.month.toString().padLeft(2, '0')}-${metric.timestamp.day.toString().padLeft(2, '0')}';
-                          
-                          return Card(
-                            margin: const EdgeInsets.symmetric(vertical: 8),
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: BorderSide(color: Colors.grey.shade200, width: 1),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    dateStr,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 12,
-                                    runSpacing: 8,
-                                    children: [
-                                      _buildHealthMetricBadge('心率', '${metric.heartRate}', 'bpm', Colors.red),
-                                      if (metric.bloodPressure != null)
-                                        _buildHealthMetricBadge('血压', metric.bloodPressure!, 'mmHg', Colors.orange),
-                                      _buildHealthMetricBadge('体温', '${metric.temperature}', '°C', Colors.purple),
-                                      if (metric.bloodSugar != null)
-                                        _buildHealthMetricBadge('血糖', '${metric.bloodSugar}', 'mg/dL', Colors.amber),
-                                      if (metric.steps != null)
-                                        _buildHealthMetricBadge('步数', '${metric.steps}', 'steps', Colors.blue),
-                                      if (metric.sleepDuration != null)
-                                        _buildHealthMetricBadge('睡眠', '${metric.sleepDuration}', 'min', Colors.indigo),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHealthMetricBadge(String label, String value, String unit, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.5)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 16,
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          Text(
-            unit,
-            style: TextStyle(
-              fontSize: 10,
-              color: color.withOpacity(0.7),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -751,7 +781,6 @@ class _ManageScreenState extends State<ManageScreen>
             Tab(text: '日程'),
             Tab(text: '记忆库'),
             Tab(text: '药品'),
-            Tab(text: '健康'),
           ],
         ),
         Expanded(
@@ -762,11 +791,46 @@ class _ManageScreenState extends State<ManageScreen>
               _buildScheduleTab(),
               _buildMemoryTab(),
               _buildMedicineTab(),
-              _buildHealthTab(),
             ],
           ),
         ),
       ],
     );
   }
+
+  List<String> _splitToList(String input) {
+    return input
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  String _joinList(dynamic value) {
+    if (value is List) {
+      return value.map((e) => e.toString()).join(', ');
+    }
+    if (value is String) return value;
+    return '';
+  }
+
+  String _normalizePhotoId(String id) {
+    if (id.isEmpty) return '';
+    return id.startsWith('photo_') ? id : 'photo_$id';
+  }
+
+  Future<String?> _pickAndUploadImage(String photoId) async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result == null || result.files.single.path == null) return null;
+
+    final uploaded = await Api.uploadPhotoImage(
+      photoId: photoId,
+      filePath: result.files.single.path!,
+    );
+    if (uploaded != null) {
+      return uploaded['asset_path']?.toString() ?? uploaded['file_path']?.toString();
+    }
+    return null;
+  }
+
 }
