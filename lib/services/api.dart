@@ -262,4 +262,17 @@ class Api {
     } catch (_) {}
     return null;
   }
+
+  // 获取照片信息：GET /get_photo_info
+  static Future<Map<String, dynamic>?> getPhotoInfo() async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$serverUrl/get_photo_info'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
 }
