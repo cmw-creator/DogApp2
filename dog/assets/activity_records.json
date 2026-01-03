@@ -1,0 +1,27 @@
+[
+  {
+    "activity_type": "movement",
+    "description": "患者在客厅走动",
+    "timestamp": "2025-01-02T08:15:00Z"
+  },
+  {
+    "activity_type": "meal",
+    "description": "患者进食早餐",
+    "timestamp": "2025-01-02T08:30:00Z"
+  },
+  {
+    "activity_type": "rest",
+    "description": "患者坐在沙发上休息",
+    "timestamp": "2025-01-02T09:00:00Z"
+  },
+  {
+    "activity_type": "movement",
+    "description": "患者走到卧室",
+    "timestamp": "2025-01-02T10:00:00Z"
+  },
+  {
+    "activity_type": "medication",
+    "description": "患者服药",
+    "timestamp": "2025-01-02T10:30:00Z"
+  }
+]

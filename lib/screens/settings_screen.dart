@@ -35,6 +35,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  // 检查服务器状态
+  Future<Map<String, dynamic>?> checkServer() async {
+    try {
+      final data = await Api.getStatus();
+      return data;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -48,6 +58,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
               TextField(controller: _serverController, decoration: const InputDecoration(labelText: '服务器地址')),
               const SizedBox(height: 12),
               ElevatedButton(onPressed: _save, child: const Text('保存设置')),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(children: [
+              const ListTile(title: Text('服务器')),
+              ElevatedButton(
+                onPressed: () async {
+                  final status = await checkServer();
+                  if (mounted) {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('服务器状态'),
+                        content: Text(status != null ? '在线' : '无法连接'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('确定'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                },
+                child: const Text('检查服务器'),
+              ),
             ]),
           ),
         ),
