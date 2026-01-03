@@ -267,7 +267,11 @@ class Api {
   static Future<Map<String, dynamic>?> getPhotoInfo() async {
     try {
       final resp = await http
-          .get(Uri.parse('$serverUrl/get_photo_info'))
+          .get(Uri.parse('$serverUrl/get_photo_info'));
+    }catch (_) {
+      //return false;
+    }
+  }  
   // 患者活动监控：上传活动记录
   static Future<bool> uploadActivity(String activityType, String description) async {
     try {
