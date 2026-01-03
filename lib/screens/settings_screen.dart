@@ -115,6 +115,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               TextField(controller: _serverController, decoration: const InputDecoration(labelText: '服务器地址')),
               const SizedBox(height: 12),
               ElevatedButton(onPressed: _save, child: const Text('保存设置')),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.notifications_active),
+                label: const Text('测试通知'),
+                onPressed: () async {
+                  final ok = await Api.publishNotification(
+                    message: '这是一条测试通知',
+                    type: 'test',
+                    payload: {'from': widget.userType == SettingsUserType.patient ? 'patient' : 'family'},
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(ok ? '测试通知已发送' : '发送失败')),
+                    );
+                  }
+                },
+              ),
             ]),
           ),
         ),
@@ -172,7 +189,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
-        elevation: 2,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -223,7 +244,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
-        elevation: 2,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(

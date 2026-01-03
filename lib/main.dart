@@ -12,6 +12,7 @@ import 'screens/manage_screen.dart';
 import 'screens/monitor_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/community_screen.dart';
+import 'screens/notification_screen.dart';
 import 'services/api.dart';
 import 'services/local_store.dart';
 
@@ -109,6 +110,14 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
+        scaffoldBackgroundColor: Colors.white,
+        cardTheme: CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.grey.shade200, width: 1),
+          ),
+        ),
       ),
       home: const RootPage(),
       debugShowCheckedModeBanner: false,
@@ -275,6 +284,14 @@ class _RootPageState extends State<RootPage> {
       appBar: AppBar(
         title: Text(userType == 'patient' ? '患者端' : '家属端'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
+              );
+            },
+          ),
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'switch') {

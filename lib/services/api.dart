@@ -219,6 +219,85 @@ class Api {
     return null;
   }
 
+  // 发布通知（测试通道）
+  static Future<bool> publishNotification({
+    required String message,
+    String type = 'info',
+    Map<String, dynamic>? payload,
+  }) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/notifications/publish'),
+              headers: _headers,
+              body: json.encode({
+                'message': message,
+                'type': type,
+                'payload': payload ?? {},
+              }))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 社区：获取帖子列表
+  static Future<List<dynamic>?> getCommunityPosts() async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$serverUrl/community/get_posts'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as List<dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<bool> createCommunityPost(Map<String, dynamic> payload) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/community/create_post'),
+              headers: _headers, body: json.encode(payload))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> commentCommunityPost(int postId, String text,
+      {String? author}) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/community/comment_post'),
+              headers: _headers,
+              body: json.encode({
+                'post_id': postId,
+                'text': text,
+                'author': author ?? '家庭成员'
+              }))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<int?> likeCommunityPost(int postId) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/community/like_post'),
+              headers: _headers, body: json.encode({'post_id': postId}))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final d = json.decode(resp.body) as Map<String, dynamic>;
+        return d['likes'] as int?;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // 新增/更新日程
   static Future<bool> upsertSchedule(Map<String, dynamic> payload) async {
     try {

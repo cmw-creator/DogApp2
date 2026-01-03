@@ -1,7 +1,18 @@
 import 'package:flutter/material.dart';
+import '../services/api.dart';
 
-class CommunityScreen extends StatelessWidget {
+class CommunityScreen extends StatefulWidget {
   const CommunityScreen({Key? key}) : super(key: key);
+
+  @override
+  State<CommunityScreen> createState() => _CommunityScreenState();
+}
+
+class _CommunityScreenState extends State<CommunityScreen>
+    with SingleTickerProviderStateMixin {
+  TabController? _tabController;
+  List<Map<String, dynamic>> _posts = [];
+  bool _loadingPosts = false;
 
   List<Map<String, String>> get _tips => const [
         {
@@ -117,72 +128,251 @@ class CommunityScreen extends StatelessWidget {
       ];
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _tips.length,
-      itemBuilder: (context, index) {
-        final tip = _tips[index];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: GestureDetector(
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (ctx) => _TipDetailPage(tip: tip),
-                ),
-              );
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadPosts();
+  }
+
+  Future<void> _loadPosts() async {
+    setState(() => _loadingPosts = true);
+    final data = await Api.getCommunityPosts();
+    if (data != null) {
+      setState(() => _posts = data.map((e) => Map<String, dynamic>.from(e)).toList());
+    }
+    setState(() => _loadingPosts = false);
+  }
+
+  Future<void> _createPost() async {
+    final titleCtl = TextEditingController();
+    final contentCtl = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('发布帖子'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: titleCtl, decoration: const InputDecoration(labelText: '标题')),
+            TextField(controller: contentCtl, decoration: const InputDecoration(labelText: '内容'), maxLines: 4),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          ElevatedButton(
+            onPressed: () async {
+              final ok = await Api.createCommunityPost({
+                'title': titleCtl.text.trim(),
+                'content': contentCtl.text.trim(),
+                'author': '家庭成员',
+              });
+              Navigator.pop(ctx, ok);
             },
-            child: Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.lightBlue.shade50,
-                      Colors.lightBlue.shade100,
-                    ],
-                  ),
-                ),
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(tip['icon'] ?? '💡', style: const TextStyle(fontSize: 28)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            tip['title'] ?? '',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue.shade900,
-                            ),
-                          ),
-                        const SizedBox(height: 6),
-                        Text(
-                          tip['subtitle'] ?? '',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: Colors.blue.shade700,
-                          ),
-                        ),
-                        ],
-                      ),
-                    ),
-                  ],
+            child: const Text('发布'),
+          ),
+        ],
+      ),
+    );
+    if (result == true) {
+      await _loadPosts();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('发布成功')));
+    }
+  }
+
+  Future<void> _showComments(Map<String, dynamic> post) async {
+    final comments = List<Map<String, dynamic>>.from(post['comments'] ?? []);
+    final ctl = TextEditingController();
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: SizedBox(
+          height: 400,
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  itemCount: comments.length,
+                  itemBuilder: (_, i) {
+                    final c = comments[i];
+                    return ListTile(
+                      title: Text(c['author'] ?? ''),
+                      subtitle: Text(c['text'] ?? ''),
+                    );
+                  },
                 ),
               ),
-            ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  children: [
+                    Expanded(child: TextField(controller: ctl, decoration: const InputDecoration(hintText: '发表评论'))),
+                    IconButton(
+                      icon: const Icon(Icons.send),
+                      onPressed: () async {
+                        final text = ctl.text.trim();
+                        if (text.isEmpty) return;
+                        final ok = await Api.commentCommunityPost(post['id'] as int, text);
+                        if (ok) {
+                          Navigator.pop(ctx);
+                          await _loadPosts();
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('评论成功')));
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('评论失败')));
+                        }
+                      },
+                    )
+                  ],
+                ),
+              )
+            ],
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _likePost(int postId) async {
+    final likes = await Api.likeCommunityPost(postId);
+    if (likes != null) {
+      await _loadPosts();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        TabBar(
+          controller: _tabController,
+          tabs: const [Tab(text: '论坛'), Tab(text: '小知识')],
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              // 论坛页
+              Stack(
+                children: [
+                  _loadingPosts
+                      ? const Center(child: CircularProgressIndicator())
+                      : RefreshIndicator(
+                          onRefresh: _loadPosts,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: _posts.length,
+                            itemBuilder: (ctx, idx) {
+                              final p = _posts[idx];
+                              return Card(
+                                margin: const EdgeInsets.symmetric(vertical: 8),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(child: Text(p['title'] ?? '', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))),
+                                          Text(p['author'] ?? '', style: theme.textTheme.bodySmall),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(p['content'] ?? ''),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          IconButton(icon: const Icon(Icons.thumb_up), onPressed: () => _likePost(p['id'] as int)),
+                                          Text('${p['likes'] ?? 0}'),
+                                          const SizedBox(width: 16),
+                                          IconButton(icon: const Icon(Icons.comment), onPressed: () => _showComments(p)),
+                                          Text('${(p['comments'] as List).length}'),
+                                        ],
+                                      )
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: FloatingActionButton(
+                      onPressed: _createPost,
+                      child: const Icon(Icons.add),
+                    ),
+                  ),
+                ],
+              ),
+              // 小知识页：保留原 tips 列表
+              ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _tips.length,
+                itemBuilder: (context, index) {
+                  final tip = _tips[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (ctx) => _TipDetailPage(tip: tip),
+                          ),
+                        );
+                      },
+                      child: Card(
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(color: Colors.grey.shade200, width: 1),
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            color: Colors.white,
+                          ),
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(tip['icon'] ?? '💡', style: const TextStyle(fontSize: 28)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      tip['title'] ?? '',
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blue.shade900,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      tip['subtitle'] ?? '',
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: Colors.blue.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -207,19 +397,15 @@ class _TipDetailPage extends StatelessWidget {
           children: [
             // 顶部卡片：标题、图标、摘要
             Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.grey.shade200, width: 1),
+              ),
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.lightBlue.shade50,
-                      Colors.lightBlue.shade100,
-                    ],
-                  ),
+                  color: Colors.white,
                 ),
                 padding: const EdgeInsets.all(20),
                 child: Column(
@@ -264,8 +450,11 @@ class _TipDetailPage extends StatelessWidget {
             
             // 内容卡片：详细信息
             Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.grey.shade200, width: 1),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: SelectableText(
