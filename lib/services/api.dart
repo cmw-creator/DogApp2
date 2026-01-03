@@ -9,6 +9,45 @@ class Api {
         'Content-Type': 'application/json',
       };
 
+  // 家属端登录
+  static Future<bool> loginUser({required String phone, required String password}) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/auth/login'),
+              headers: _headers,
+              body: json.encode({'phone': phone, 'password': password}))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 家属端注册
+  static Future<bool> registerUser({required String phone, required String password}) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/auth/register'),
+              headers: _headers,
+              body: json.encode({'phone': phone, 'password': password}))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 退出登录（后端仅记录日志，前端清理会话）
+  static Future<void> logoutUser() async {
+    try {
+      await http
+          .post(Uri.parse('$serverUrl/auth/logout'), headers: _headers)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // ignore
+    }
+  }
+
   // 获取机器狗状态：GET /status
   static Future<Map<String, dynamic>?> getStatus() async {
     try {
@@ -225,6 +264,7 @@ class Api {
     String type = 'info',
     String? from,
     String? to,
+    bool requireDelivery = false,
     Map<String, dynamic>? payload,
   }) async {
     try {
@@ -236,6 +276,7 @@ class Api {
                 'type': type,
                 'from': from,
                 'to': to,
+                'require_delivery': requireDelivery,
                 'payload': payload ?? {},
               }))
           .timeout(const Duration(seconds: 5));
@@ -243,6 +284,33 @@ class Api {
     } catch (_) {
       return false;
     }
+  }
+
+  static Future<Map<String, dynamic>?> publishNotificationWithReceipt({
+    required String message,
+    String type = 'info',
+    String? from,
+    String? to,
+    Map<String, dynamic>? payload,
+  }) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/notifications/publish'),
+              headers: _headers,
+              body: json.encode({
+                'message': message,
+                'type': type,
+                'from': from,
+                'to': to,
+                'require_delivery': true,
+                'payload': payload ?? {},
+              }))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return Map<String, dynamic>.from(json.decode(resp.body) as Map);
+      }
+    } catch (_) {}
+    return null;
   }
 
   static Future<List<dynamic>?> getNotificationHistory({int limit = 50}) async {

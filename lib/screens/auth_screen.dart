@@ -31,6 +31,14 @@ class _AuthScreenState extends State<AuthScreen> {
       setState(() => _error = '手机号和密码不能为空');
       return;
     }
+      if (!RegExp(r'^1\d{10}$').hasMatch(phone)) {
+      setState(() => _error = '手机号格式不正确，需要11位数字且以1开头');
+      return;
+    }
+    if (!_isLogin && pwd.length < 6) {
+      setState(() => _error = '密码长度需至少6位');
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -159,7 +167,7 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '提示：本示例为本地存储演示，手机号+密码保存在本地。',
+              '提示：账号密码会发送至后端并以明文保存在本地文件，仅用于演示。',
               style: theme.textTheme.bodySmall,
             ),
           ],

@@ -21,8 +21,8 @@ import 'services/notification_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await LocalStore.ensureInit();
-  // 尝试启动本地测试后端（桌面调试时模拟 Kivy 中在 __main__ 里启动 DogServer）
-  startTestBackend();
+  // 桌面调试时可手动开启本地测试后端；默认关闭避免无关日志。
+  // startTestBackend();
 
   runApp(const MyApp());
 }
@@ -34,7 +34,6 @@ Process? _backendProcess;
 Future<void> startTestBackend() async {
   if (kIsWeb) return;
   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-    debugPrint('startTestBackend: 非桌面平台，跳过启动测试后端');
     return;
   }
 
@@ -60,31 +59,17 @@ Future<void> startTestBackend() async {
 
     if (proc != null) {
       _backendProcess = proc;
-      // 输出后端日志到 Flutter 控制台
-      proc.stdout
-          .transform(utf8.decoder)
-          .listen((data) => debugPrint('[backend] $data'));
-      proc.stderr
-          .transform(utf8.decoder)
-          .listen((data) => debugPrint('[backend][err] $data'));
-      debugPrint('测试后端已启动 (pid=${proc.pid})');
+      // 如需查看后端日志，可在这里恢复 stdout/stderr 转发。
 
       // 在收到 SIGINT / SIGTERM 时尝试终止后端（桌面调试友好）
       try {
-        ProcessSignal.sigint.watch().listen((_) {
-          debugPrint('收到 SIGINT，尝试停止测试后端');
-          stopTestBackend();
-        });
-        ProcessSignal.sigterm.watch().listen((_) {
-          debugPrint('收到 SIGTERM，尝试停止测试后端');
-          stopTestBackend();
-        });
+        ProcessSignal.sigint.watch().listen((_) => stopTestBackend());
+        ProcessSignal.sigterm.watch().listen((_) => stopTestBackend());
       } catch (_) {
         // 某些平台/环境不支持信号监听，忽略
       }
     }
   } catch (e) {
-    debugPrint('无法启动测试后端: $e');
   }
 }
 
@@ -93,11 +78,9 @@ void stopTestBackend() {
   try {
     if (_backendProcess != null) {
       _backendProcess!.kill(ProcessSignal.sigterm);
-      debugPrint('已发送终止信号到测试后端 (pid=${_backendProcess!.pid})');
       _backendProcess = null;
     }
   } catch (e) {
-    debugPrint('停止测试后端时出错: $e');
   }
 }
 
@@ -157,9 +140,6 @@ class _RootPageState extends State<RootPage> {
     super.initState();
     _initState();
 
-    // 全局启动通知订阅：即使当前不在 Today/Manage，也能收到弹窗。
-    NotificationService.instance.start();
-
     // 全局订阅通知流并弹窗。避免仅在特定页面监听导致“无弹窗”。
     NotificationService.instance.stream.listen((event) {
       final type = event['type']?.toString() ?? 'info';
@@ -181,6 +161,12 @@ class _RootPageState extends State<RootPage> {
         },
       );
     });
+
+    // 等首帧后再标记 UI ready 并启动订阅，避免启动早期事件无人监听而“看起来没反应”。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.instance.setUiReady();
+      NotificationService.instance.start();
+    });
   }
 
   Future<void> _initState() async {
@@ -195,20 +181,23 @@ class _RootPageState extends State<RootPage> {
   }
 
   Future<void> _handleLogin(String phone, String password) async {
-    final ok = await LocalStore.login(phone, password);
+    final ok = await Api.loginUser(phone: phone, password: password);
     if (ok && mounted) {
+      await LocalStore.saveSession(phone);
       setState(() => _familyLoggedIn = true);
     }
   }
 
   Future<void> _handleRegister(String phone, String password) async {
-    final ok = await LocalStore.register(phone, password);
+    final ok = await Api.registerUser(phone: phone, password: password);
     if (ok && mounted) {
+      await LocalStore.saveSession(phone);
       setState(() => _familyLoggedIn = true);
     }
   }
 
   Future<void> _handleLogout() async {
+    await Api.logoutUser();
     await LocalStore.logout();
     if (mounted) {
       setState(() {

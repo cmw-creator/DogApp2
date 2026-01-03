@@ -120,16 +120,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: const Icon(Icons.notifications_active),
                 label: const Text('测试通知'),
                 onPressed: () async {
-                  final ok = await Api.publishNotification(
+                  final from =
+                      widget.userType == SettingsUserType.patient ? 'patient' : 'family';
+                  final receipt = await Api.publishNotificationWithReceipt(
                     message: '这是一条测试通知',
                     type: 'test',
-                    from: widget.userType == SettingsUserType.patient ? 'patient' : 'family',
-                    to: 'all',
-                    payload: {'from': widget.userType == SettingsUserType.patient ? 'patient' : 'family'},
+                    from: from,
+                    // 注意：这里不要默认广播给所有人。
+                    // 若需要精确指定对方 clientId，可后续在 UI 增加输入/选择。
+                    to: 'peer',
+                    payload: {'from': from},
                   );
+                  final ok = receipt != null;
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(ok ? '测试通知已发送' : '发送失败')),
+                      SnackBar(
+                        content: Text(ok
+                            ? '已发送（可送达=${receipt?['delivered_possible']}）'
+                            : '发送失败'),
+                      ),
                     );
                   }
                 },

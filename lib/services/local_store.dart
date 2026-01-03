@@ -7,7 +7,6 @@ class LocalStore {
   static SharedPreferences? _prefs;
 
   static const _kFamilyPhone = 'family_phone';
-  static const _kFamilyPassword = 'family_password';
   static const _kFamilyLoggedIn = 'family_logged_in';
   static const _kPatientCode = 'patient_code';
   static const _kBindCode = 'bind_code';
@@ -64,27 +63,17 @@ class LocalStore {
     await _prefs!.remove(_kBoundPatientCode);
   }
 
-  // Auth
-  static Future<bool> register(String phone, String password) async {
-    if (_prefs == null) return false;
+  // Auth session（仅本地会话状态）
+  static Future<void> saveSession(String phone) async {
+    if (_prefs == null) return;
     await _prefs!.setString(_kFamilyPhone, phone);
-    await _prefs!.setString(_kFamilyPassword, password);
     await _prefs!.setBool(_kFamilyLoggedIn, true);
-    return true;
-  }
-
-  static Future<bool> login(String phone, String password) async {
-    if (_prefs == null) return false;
-    final savedPhone = _prefs!.getString(_kFamilyPhone);
-    final savedPwd = _prefs!.getString(_kFamilyPassword);
-    final ok = savedPhone == phone && savedPwd == password;
-    if (ok) await _prefs!.setBool(_kFamilyLoggedIn, true);
-    return ok;
   }
 
   static Future<void> logout() async {
     if (_prefs == null) return;
     await _prefs!.setBool(_kFamilyLoggedIn, false);
+    await _prefs!.remove(_kFamilyPhone);
   }
 
   static bool get isLoggedIn => _prefs?.getBool(_kFamilyLoggedIn) ?? false;

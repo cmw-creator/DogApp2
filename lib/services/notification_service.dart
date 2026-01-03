@@ -18,13 +18,16 @@ class NotificationService {
 
   final _controller = StreamController<Map<String, dynamic>>.broadcast();
   final List<Map<String, dynamic>> _history = [];
+  final List<Map<String, dynamic>> _pendingForUi = [];
   StreamSubscription<List<int>>? _subscription;
   bool _running = false;
   http.Client? _client;
   final StringBuffer _buffer = StringBuffer();
   final String clientId = '${_defaultClientId()}-${ClientId.value}';
 
-  bool debugEnabled = true;
+  bool _uiReady = false;
+
+  bool debugEnabled = false;
 
   void _log(String msg) {
     if (!debugEnabled) return;
@@ -35,6 +38,26 @@ class NotificationService {
 
   List<Map<String, dynamic>> get historySnapshot =>
       List<Map<String, dynamic>>.from(_history);
+
+  /// UI 是否已经完成首帧并开始监听通知流。
+  ///
+  /// 目的：避免事件在 app 启动早期到达时，因为还没人订阅 stream 而“看起来没反应”。
+  void setUiReady() {
+    if (_uiReady) return;
+    _uiReady = true;
+    _emitPendingToUi();
+  }
+
+  void _emitPendingToUi() {
+    if (!_uiReady) return;
+    if (_pendingForUi.isEmpty) return;
+
+    final pending = List<Map<String, dynamic>>.from(_pendingForUi);
+    _pendingForUi.clear();
+    for (final e in pending) {
+      _controller.add(e);
+    }
+  }
 
   void start() {
     if (_running) return;
@@ -164,7 +187,14 @@ class NotificationService {
       _log('event type=$type raw=$mapped');
       _history.add(mapped);
       if (_history.length > 100) _history.removeAt(0);
-      _controller.add(mapped);
+
+      // 如果 UI 还没 ready，先缓存，等 UI ready 后补发。
+      if (_uiReady) {
+        _controller.add(mapped);
+      } else {
+        _pendingForUi.add(mapped);
+        if (_pendingForUi.length > 50) _pendingForUi.removeAt(0);
+      }
 
       // 对非 ping/hello 的业务通知发送 ack，方便另一端感知送达
       try {
