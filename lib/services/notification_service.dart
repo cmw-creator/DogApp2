@@ -6,10 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'client_id.dart';
-
-// Web 平台优先使用浏览器原生 EventSource（比 http streaming 稳定很多）
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+import 'web_event_source.dart';
 
 /// 简易 SSE 通知服务
 class NotificationService {
@@ -82,7 +79,7 @@ class NotificationService {
     _es = null;
   }
 
-  html.EventSource? _es;
+  WebEventSource? _es;
 
   void _connectWeb() {
     if (!_running) return;
@@ -91,24 +88,21 @@ class NotificationService {
 
     try {
       _es?.close();
-      _es = html.EventSource(url);
-      _es!.onOpen.listen((_) {
-        _log('EventSource open');
-      });
-      _es!.onError.listen((event) {
-        _log('EventSource error; will reconnect');
-        _es?.close();
-        _es = null;
-        if (_running) {
-          Future.delayed(const Duration(seconds: 2), _connectWeb);
-        }
-      });
-      _es!.onMessage.listen((html.MessageEvent event) {
-        final data = event.data;
-        if (data == null) return;
-        final dataStr = data.toString();
-        _handleSseDataLine(dataStr);
-      });
+      _es = WebEventSource.connect(
+        url,
+        onOpen: () => _log('EventSource open'),
+        onError: (event) {
+          _log('EventSource error; will reconnect');
+          _es?.close();
+          _es = null;
+          if (_running) {
+            Future.delayed(const Duration(seconds: 2), _connectWeb);
+          }
+        },
+        onMessage: (dataStr) {
+          _handleSseDataLine(dataStr);
+        },
+      );
     } catch (e) {
       _log('connectWeb exception: $e');
       if (_running) {

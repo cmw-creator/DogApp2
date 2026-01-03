@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, stream_with_context, Response
+from flask import Flask, request, jsonify, send_from_directory, stream_with_context, Response, abort
 from flask_cors import CORS
 import threading
 import time
@@ -24,9 +24,15 @@ class DogServer:
         # 配置跨域请求
         CORS(self.app)
         
+        # 使用绝对路径以避免 CWD (当前工作目录) 不同导致的问题
+        # .../DogApp2/dog
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # .../DogApp2
+        root_dir = os.path.dirname(current_dir)
+
         # 服务器配置
-        self.UPLOAD_FOLDER = 'uploads'
-        self.ASSETS_FOLDER = os.path.join('dog', 'assets')
+        self.UPLOAD_FOLDER = os.path.join(root_dir, 'uploads')
+        self.ASSETS_FOLDER = os.path.join(current_dir, 'assets')
         self.ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
         self.MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
         
@@ -80,8 +86,8 @@ class DogServer:
         self.notification_history_lock = Lock()
         self.notification_next_id = 1
 
-        # 简单账号存储（明文，保存在 uploads/users.json）
-        self.users_filename = 'users.json'
+        # 简单账号存储（明文，保存在 dog/users.json）
+        self.users_file_path = os.path.join(current_dir, 'users.json')
 
         # 日程提醒推送相关
         self.schedule_notifier_stop = threading.Event()
@@ -152,17 +158,28 @@ class DogServer:
 
     # ========== 简易账号存储（明文，仅演示用途） ==========
     def load_users(self):
-        data = self.load_json_data(self.users_filename)
-        if not data:
-            return {'users': []}
-        if isinstance(data, list):
-            return {'users': data}
-        if isinstance(data, dict) and 'users' in data:
-            return {'users': data.get('users', [])}
+        try:
+            with self.file_lock:
+                if os.path.exists(self.users_file_path):
+                    with open(self.users_file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if isinstance(data, list):
+                            return {'users': data}
+                        if isinstance(data, dict) and 'users' in data:
+                            return {'users': data.get('users', [])}
+        except Exception as e:
+            logger.error(f"加载用户数据失败: {e}")
         return {'users': []}
 
     def save_users(self, users):
-        return self.save_json_data(users, self.users_filename)
+        try:
+            with self.file_lock:
+                with open(self.users_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(users, f, ensure_ascii=False, indent=4)
+            return True
+        except Exception as e:
+            logger.error(f"保存用户数据失败: {e}")
+            return False
     
     def get_video_stream_generator(self, video_path):
         """生成视频流，循环播放"""
@@ -616,6 +633,17 @@ class DogServer:
                 return send_from_directory(self.app.config['UPLOAD_FOLDER'], filename)
             except FileNotFoundError:
                 return jsonify({'message': '图片未找到'}), 404
+
+        # 访问 assets 下的静态资源（含记忆库图片）
+        @self.app.route('/assets/<path:filename>')
+        def get_asset(filename):
+            try:
+                safe_path = os.path.normpath(filename)
+                if safe_path.startswith('..'):
+                    return abort(400)
+                return send_from_directory(self.app.config['ASSETS_FOLDER'], safe_path)
+            except FileNotFoundError:
+                return jsonify({'message': '资源未找到'}), 404
         
         # GPS数据上传路由
         @self.app.route('/upload_gps', methods=['POST'])
@@ -876,18 +904,38 @@ class DogServer:
                 photo_id = data.get('photo_id')
                 description = data.get('description', '')
                 audio_file = data.get('audio_file', '')
+                title = data.get('title', '')
+                event_date = data.get('event_date', '')
+                image_file = data.get('image_file', '')
+                location = data.get('location', '')
+                tags = data.get('tags', [])
+                people = data.get('people', [])
+                emotion = data.get('emotion', '')
+
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(',') if t.strip()]
+                if isinstance(people, str):
+                    people = [p.strip() for p in people.split(',') if p.strip()]
                 
                 if not photo_id:
                     return jsonify({'message': '缺少photo_id字段'}), 400
                 
                 # 加载现有数据
                 photo_info = self.load_assets_json('photo_info.json')
+                existing = photo_info.get(photo_id, {})
                 
                 # 更新或添加
                 photo_info[photo_id] = {
-                    'description': description,
+                    'title': title or existing.get('title', ''),
+                    'description': description or existing.get('description', ''),
+                    'event_date': event_date or existing.get('event_date', ''),
                     'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'audio_file': audio_file
+                    'image_file': image_file or existing.get('image_file', ''),
+                    'audio_file': audio_file or existing.get('audio_file', ''),
+                    'location': location or existing.get('location', ''),
+                    'tags': tags or existing.get('tags', []),
+                    'people': people or existing.get('people', []),
+                    'emotion': emotion or existing.get('emotion', '')
                 }
                 
                 if self.save_assets_json(photo_info, 'photo_info.json'):
@@ -960,7 +1008,8 @@ class DogServer:
                     return jsonify({
                         'message': '照片上传成功!',
                         'photo_id': photo_id,
-                        'file_path': filename
+                        'file_path': filename,
+                        'asset_path': f"photo_detector/{filename}"
                     }), 200
                 else:
                     return jsonify({'message': '不支持的文件类型'}), 400
@@ -1700,21 +1749,21 @@ class DogServer:
 
 
     
-    def run_server(self):
+    def run_server(self, port=5000):
         """运行Flask服务器"""
         print("启动机器狗控制服务器...")
         print(f"上传目录: {os.path.abspath(self.app.config['UPLOAD_FOLDER'])}")
-        print("服务器地址: http://0.0.0.0:5000")
+        print(f"服务器地址: http://0.0.0.0:{port}")
         
         # 使用多线程模式运行
-        self.app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+        self.app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
     
-    def start(self):
+    def start(self, port=5000):
         """启动服务器线程"""
-        server_thread = threading.Thread(target=self.run_server)
+        server_thread = threading.Thread(target=self.run_server, kwargs={'port': port})
         server_thread.daemon = True
         server_thread.start()
-        print("机器狗API服务器已启动在端口5000")
+        print(f"机器狗API服务器已启动在端口{port}")
 
 # 集成到现有的机器狗主程序
 def main():

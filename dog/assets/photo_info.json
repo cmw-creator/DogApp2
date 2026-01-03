@@ -1,7 +1,38 @@
 {
   "photo_00001": {
+    "title": "社区书法一等奖",
     "description": "这是您参加社区书法比赛获得一等奖的作品和照片。您的楷书写得工整有力，评委们都说很有颜真卿的风骨。您从六十岁开始学习书法，每天坚持练习两个小时，这份坚持和毅力真是令人敬佩。",
+    "event_date": "2025-10-01",
     "update_time": "2025-10-01 18:20:00",
-    "audio_file": "assets/voice/photo/photo_00001.wav"
+    "image_file": "photo_detector/photo_00001.jpg",
+    "audio_file": "",
+    "location": "社区文化中心",
+    "people": ["本人", "书法老师"],
+    "tags": ["书法", "比赛", "获奖"],
+    "emotion": "自豪"
+  },
+  "photo_00002": {
+    "title": "全家秋日郊游",
+    "description": "那天阳光正好，大家一起在公园里野餐、放风筝，还帮着拍了很多照片。",
+    "event_date": "2024-10-15",
+    "update_time": "2024-10-15 17:30:00",
+    "image_file": "photo_detector/photo_00002.jpg",
+    "audio_file": "",
+    "location": "人民公园",
+    "people": ["本人", "爱人", "孙女"],
+    "tags": ["家庭", "郊游", "秋天"],
+    "emotion": "温馨"
+  },
+  "photo_00003": {
+    "title": "生日蛋糕惊喜",
+    "description": "家人提前准备的生日惊喜，还有孙子亲手做的小卡片。",
+    "event_date": "2024-11-20",
+    "update_time": "2024-11-20 20:10:00",
+    "image_file": "photo_detector/photo_00003.jpg",
+    "audio_file": "",
+    "location": "家中客厅",
+    "people": ["本人", "家人"],
+    "tags": ["生日", "家人", "庆祝"],
+    "emotion": "快乐"
   }
 }

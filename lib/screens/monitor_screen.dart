@@ -42,7 +42,11 @@ class _MonitorScreenState extends State<MonitorScreen> {
 
   Future<void> _initializeWebRTC() async {
     try {
-      _webrtcService = WebRTCService(serverUrl: 'http://localhost:5001');
+      final apiUrl = Uri.parse(Api.serverUrl);
+      final webrtcPort = apiUrl.port + 1;
+      final webrtcUrl = '${apiUrl.scheme}://${apiUrl.host}:$webrtcPort';
+      
+      _webrtcService = WebRTCService(serverUrl: webrtcUrl);
       
       // 设置回调
       _webrtcService!.onRemoteStream = (stream) {
@@ -179,25 +183,63 @@ class _MonitorScreenState extends State<MonitorScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 3,
       child: Column(
         children: [
           const TabBar(tabs: [
             Tab(text: '实时'),
             Tab(text: '提醒'),
             Tab(text: '视频'),
-            Tab(text: '指令'),
           ]),
           Expanded(
             child: TabBarView(children: [
               // 实时监控标签页
               _buildRealtimeTab(),
-              const Center(child: Text('提醒与警报 - 占位')),
+              _buildReminderTab(),
               // 视频直播标签页
               _buildVideoTab(),
-              const Center(child: Text('指令发送 - 占位')),
             ]),
           )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReminderTab() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '快速提醒',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('一键创建5分钟后的临时提醒'),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: _quickRemind,
+                    icon: const Icon(Icons.alarm),
+                    label: const Text('马上提醒'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('提醒与警报列表（待接入后端数据）'),
+            ),
+          ),
         ],
       ),
     );
@@ -612,6 +654,20 @@ class _MonitorScreenState extends State<MonitorScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _quickRemind() async {
+    final now = DateTime.now().add(const Duration(minutes: 5));
+    final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final ok = await Api.upsertSchedule({
+      'time': timeStr,
+      'event': '临时提醒',
+      'completed': false,
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ok ? '已创建5分钟后的提醒' : '提醒创建失败')),
     );
   }
 }

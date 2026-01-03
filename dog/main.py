@@ -20,15 +20,17 @@ class AppLauncher:
     def __init__(self):
         self.dog_server = DogServer()
         self.webrtc_server = WebRTCServer()
+        self.api_port = 5000
 
     def start(self):
         def start_dog():
-            self.dog_server.start()
+            self.dog_server.start(port=self.api_port)
 
         # 启动 webrtc_server（内部已管理 asyncio 线程循环）
         def start_webrtc():
-            logger.info("启动 webrtc_server on 0.0.0.0:5001")
-            self.webrtc_server.run(host='0.0.0.0', port=5001, debug=False)
+            webrtc_port = self.api_port + 1
+            logger.info(f"启动 webrtc_server on 0.0.0.0:{webrtc_port}")
+            self.webrtc_server.run(host='0.0.0.0', port=webrtc_port, debug=False)
 
         start_dog()
         import threading

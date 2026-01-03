@@ -121,6 +121,10 @@ class RootPage extends StatefulWidget {
 }
 
 class _RootPageState extends State<RootPage> {
+  static const bool _bindingGateEnabled = true; // 需要时可改为 false 关闭绑定强制
+  static const bool _showBindTutorialOnLogin = true; // 需要时可改为 false 关闭弹窗教程
+  static const bool _showBindPromptOnLogin = true; // 登录后直接弹出绑定输入
+
   // 模拟用户类型：'family' 或 'patient'
   String userType = 'family';
   int _currentIndex = 0;
@@ -128,9 +132,15 @@ class _RootPageState extends State<RootPage> {
   // 登录与绑定状态
   bool _initialized = false;
   bool _familyLoggedIn = false;
+  bool _bindTutorialShown = false;
+  bool _bindPromptShown = false;
+  String? _familyPhone;
   String? _patientCode;
   String? _bindCode;
   String? _boundPatientCode;
+
+  final TextEditingController _bindPatientCodeCtrl = TextEditingController();
+  final TextEditingController _bindCodeCtrl = TextEditingController();
 
   // 服务器地址可在 Settings 页面修改（这里是内存保存示例）
   String serverUrl = 'http://127.0.0.1:5000';
@@ -169,13 +179,22 @@ class _RootPageState extends State<RootPage> {
     });
   }
 
+  @override
+  void dispose() {
+    _bindPatientCodeCtrl.dispose();
+    _bindCodeCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _initState() async {
     await LocalStore.ensureInit();
     setState(() {
+      _familyPhone = LocalStore.familyPhone;
       _familyLoggedIn = LocalStore.isLoggedIn;
       _patientCode = LocalStore.patientCode;
       _bindCode = LocalStore.bindCode;
-      _boundPatientCode = LocalStore.boundPatientCode;
+      _boundPatientCode =
+          LocalStore.getBoundPatientForAccount(_familyPhone) ?? LocalStore.boundPatientCode;
       _initialized = true;
     });
   }
@@ -184,7 +203,12 @@ class _RootPageState extends State<RootPage> {
     final ok = await Api.loginUser(phone: phone, password: password);
     if (ok && mounted) {
       await LocalStore.saveSession(phone);
-      setState(() => _familyLoggedIn = true);
+      setState(() {
+        _familyLoggedIn = true;
+        _familyPhone = phone;
+        _boundPatientCode = LocalStore.getBoundPatientForAccount(phone);
+      });
+      _maybeShowBindPrompt();
     }
   }
 
@@ -192,7 +216,12 @@ class _RootPageState extends State<RootPage> {
     final ok = await Api.registerUser(phone: phone, password: password);
     if (ok && mounted) {
       await LocalStore.saveSession(phone);
-      setState(() => _familyLoggedIn = true);
+      setState(() {
+        _familyLoggedIn = true;
+        _familyPhone = phone;
+        _boundPatientCode = LocalStore.getBoundPatientForAccount(phone);
+      });
+      _maybeShowBindPrompt();
     }
   }
 
@@ -202,7 +231,11 @@ class _RootPageState extends State<RootPage> {
     if (mounted) {
       setState(() {
         _familyLoggedIn = false;
+        _familyPhone = null;
         _currentIndex = 0;
+        _boundPatientCode = null;
+        _bindTutorialShown = false;
+        _bindPromptShown = false;
       });
     }
   }
@@ -215,9 +248,66 @@ class _RootPageState extends State<RootPage> {
   Future<void> _handleBindPatient(String patientCode, String bindCode) async {
     // 简单本地校验：只有与患者端生成的 code 匹配才视为成功
     if (patientCode == LocalStore.patientCode && bindCode == LocalStore.bindCode) {
-      await LocalStore.setBoundPatient(patientCode);
-      if (mounted) setState(() => _boundPatientCode = patientCode);
+      final phone = _familyPhone ?? LocalStore.familyPhone ?? '';
+      if (phone.isNotEmpty) {
+        await LocalStore.setBoundPatientForAccount(phone: phone, code: patientCode);
+      } else {
+        await LocalStore.setBoundPatient(patientCode);
+      }
+      if (mounted) {
+        setState(() {
+          _boundPatientCode = patientCode;
+          _currentIndex = 0;
+        });
+      }
     }
+  }
+
+  void _maybeShowBindPrompt() {
+    if (!_bindingGateEnabled || !_showBindPromptOnLogin || _bindPromptShown) return;
+    if (!_familyLoggedIn) return;
+    if (_boundPatientCode != null && _boundPatientCode!.isNotEmpty) return;
+
+    _bindPromptShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _bindPatientCodeCtrl.text = _patientCode ?? '';
+      _bindCodeCtrl.text = _bindCode ?? '';
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('绑定患者'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _bindPatientCodeCtrl,
+                decoration: const InputDecoration(labelText: '患者码'),
+              ),
+              TextField(
+                controller: _bindCodeCtrl,
+                decoration: const InputDecoration(labelText: '绑定码'),
+              ),
+              const SizedBox(height: 8),
+              const Text('提示：患者端设置页可查看患者码与绑定码'),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('稍后')),
+            ElevatedButton(
+              onPressed: () async {
+                await _handleBindPatient(
+                  _bindPatientCodeCtrl.text.trim(),
+                  _bindCodeCtrl.text.trim(),
+                );
+                if (mounted) Navigator.pop(context);
+              },
+              child: const Text('立即绑定'),
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   // 根据 userType 构建页面列表与导航项
@@ -281,6 +371,26 @@ class _RootPageState extends State<RootPage> {
       );
     }
 
+    final needsBinding = userType == 'family' && _familyLoggedIn && _bindingGateEnabled &&
+        (_boundPatientCode == null || _boundPatientCode!.isEmpty);
+
+    if (needsBinding && _showBindTutorialOnLogin && !_bindTutorialShown) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _bindTutorialShown = true);
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('绑定教程'),
+            content: const Text('1) 让患者端展示患者码和绑定码\n2) 在下方输入对应编码\n3) 绑定后家属端功能解锁'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('知道了')),
+            ],
+          ),
+        );
+      });
+    }
+
     if (userType == 'family' && !_familyLoggedIn) {
       return AuthScreen(
         onLogin: (phone, pwd) async {
@@ -296,8 +406,19 @@ class _RootPageState extends State<RootPage> {
       );
     }
 
-    final pages = userType == 'patient' ? _patientPages : _familyPages;
-    final navItems = userType == 'patient' ? _patientNavItems : _familyNavItems;
+    final pages = userType == 'patient'
+      ? _patientPages
+      : (needsBinding ? [_buildBindRequiredPage(), _buildBindHelpPage()] : _familyPages);
+    final navItems = userType == 'patient'
+      ? _patientNavItems
+      : (needsBinding
+        ? const [
+          BottomNavigationBarItem(icon: Icon(Icons.link), label: '绑定'),
+          BottomNavigationBarItem(icon: Icon(Icons.help_outline), label: '说明'),
+          ]
+        : _familyNavItems);
+
+    final safeIndex = _currentIndex >= pages.length ? 0 : _currentIndex;
 
     return Scaffold(
       appBar: AppBar(
@@ -326,12 +447,85 @@ class _RootPageState extends State<RootPage> {
           )
         ],
       ),
-      body: pages[_currentIndex],
+      body: pages[safeIndex],
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
+        currentIndex: safeIndex,
         items: navItems,
         onTap: (i) => setState(() => _currentIndex = i),
         type: BottomNavigationBarType.fixed,
+      ),
+    );
+  }
+
+  Widget _buildBindRequiredPage() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 12),
+          const Text('请先绑定患者', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('步骤：'),
+                  const SizedBox(height: 8),
+                  const Text('1) 在患者端打开“设置”，查看患者码与绑定码'),
+                  const Text('2) 将下方两个码填写后点击绑定'),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bindPatientCodeCtrl,
+                    decoration: const InputDecoration(labelText: '患者码'),
+                  ),
+                  TextField(
+                    controller: _bindCodeCtrl,
+                    decoration: const InputDecoration(labelText: '绑定码'),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      await _handleBindPatient(
+                        _bindPatientCodeCtrl.text.trim(),
+                        _bindCodeCtrl.text.trim(),
+                      );
+                    },
+                    icon: const Icon(Icons.link),
+                    label: const Text('绑定患者'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('当前账户: ${_familyPhone ?? '未登录'}'),
+                  Text('患者端示例码: ${_patientCode ?? ''}'),
+                  Text('绑定码: ${_bindCode ?? ''}'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text('绑定成功后将解锁管理、监控等全部功能。'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBindHelpPage() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          SizedBox(height: 12),
+          Text('绑定说明', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          SizedBox(height: 12),
+          Text('1) 在患者端设置页找到“患者码”和“绑定码”'),
+          Text('2) 家属端登录后，在绑定页填写上述两个码'),
+          Text('3) 绑定成功后解锁管理、监控、社区等全部功能'),
+          SizedBox(height: 12),
+          Text('小提示：当前为测试环境，患者码与绑定码已固定，方便联调'),
+        ],
       ),
     );
   }
