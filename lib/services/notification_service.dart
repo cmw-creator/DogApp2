@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'client_id.dart';
-import 'notification_service_web.dart' if (dart.library.html) 'notification_service_web_impl.dart';
+import 'web_event_source.dart';
 
 /// 简易 SSE 通知服务
 class NotificationService {
@@ -75,23 +75,40 @@ class NotificationService {
     _subscription = null;
     _client = null;
 
-    closeWebChannel();
+    _es?.close();
+    _es = null;
   }
+
+  WebEventSource? _es;
 
   void _connectWeb() {
     if (!_running) return;
     final url = '${Api.serverUrl}/notifications/subscribe?client_id=$clientId';
-    openWebChannel(
-      url: url,
-      onMessage: _handleSseDataLine,
-      onError: () {
-        _log('EventSource error; will reconnect');
-        if (_running) {
-          Future.delayed(const Duration(seconds: 2), _connectWeb);
-        }
-      },
-      onOpen: () => _log('EventSource open'),
-    );
+    _log('connectWeb() url=$url');
+
+    try {
+      _es?.close();
+      _es = WebEventSource.connect(
+        url,
+        onOpen: () => _log('EventSource open'),
+        onError: (event) {
+          _log('EventSource error; will reconnect');
+          _es?.close();
+          _es = null;
+          if (_running) {
+            Future.delayed(const Duration(seconds: 2), _connectWeb);
+          }
+        },
+        onMessage: (dataStr) {
+          _handleSseDataLine(dataStr);
+        },
+      );
+    } catch (e) {
+      _log('connectWeb exception: $e');
+      if (_running) {
+        Future.delayed(const Duration(seconds: 2), _connectWeb);
+      }
+    }
   }
 
   void _connect() async {
