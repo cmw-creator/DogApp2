@@ -48,5 +48,15 @@ windows/
 linux/
 macos/
 
+windows/*
+linux/*
+macos/*
+
+
 # virtual environment
 .venv/
+
+# 视频文件
+*.mp4
+*.avi
+*.mov

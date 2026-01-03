@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, stream_with_context, Response
 from flask_cors import CORS
 import threading
 import time
@@ -8,6 +8,7 @@ from datetime import datetime
 import logging
 from werkzeug.utils import secure_filename
 from threading import Lock
+import cv2
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +43,14 @@ class DogServer:
         # 服务器状态和识别结果
         self.current_status = "idle"
         self.recognition_results = []
+        
+        # 视频直播相关
+        self.video_stream = None
+        self.is_streaming = False
+        self.stream_lock = Lock()
+        self.video_stream_path = None  # 当前播放的视频路径
+        self.video_folder = os.path.join(self.ASSETS_FOLDER, 'videos')
+        os.makedirs(self.video_folder, exist_ok=True)
         # 新增：内存中的对话历史
         self.dialog_history = [
             {
@@ -115,6 +124,71 @@ class DogServer:
             return True
         except Exception as e:
             logger.error(f"保存assets JSON数据失败: {e}")
+            return False
+    
+    def get_video_stream_generator(self, video_path):
+        """生成视频流，循环播放"""
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                logger.error(f"无法打开视频文件: {video_path}")
+                return
+            
+            while self.is_streaming:
+                ret, frame = cap.read()
+                if not ret:
+                    # 视频结束，从头开始循环播放
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                
+                # 编码帧为JPEG
+                ret, buffer = cv2.imencode('.jpg', frame)
+                if ret:
+                    frame_bytes = buffer.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n'
+                           b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n\r\n' +
+                           frame_bytes + b'\r\n')
+                
+                # 控制帧率，约30FPS
+                time.sleep(0.033)
+            
+            cap.release()
+        except Exception as e:
+            logger.error(f"视频流处理错误: {e}")
+    
+    def start_video_stream(self, video_filename):
+        """启动视频直播"""
+        try:
+            video_path = os.path.join(self.video_folder, video_filename)
+            if not os.path.exists(video_path):
+                logger.error(f"视频文件不存在: {video_path}")
+                return False
+            
+            with self.stream_lock:
+                if self.is_streaming:
+                    return True  # 已在直播
+                
+                self.is_streaming = True
+                self.video_stream_path = video_path
+            
+            logger.info(f"启动视频直播: {video_path}")
+            return True
+        except Exception as e:
+            logger.error(f"启动视频直播失败: {e}")
+            return False
+    
+    def stop_video_stream(self):
+        """停止视频直播"""
+        try:
+            with self.stream_lock:
+                self.is_streaming = False
+            logger.info("停止视频直播")
+            return True
+        except Exception as e:
+            logger.error(f"停止视频直播失败: {e}")
             return False
     
     def setup_routes(self):
@@ -896,6 +970,320 @@ class DogServer:
                 }), 200
             except Exception as e:
                 logger.error(f"获取重要消息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        # ========== 患者活动监控 API ==========
+        @self.app.route('/upload_activity', methods=['POST'])
+        def upload_activity():
+            """
+            上传患者活动记录
+            请求体:
+            {
+              "activity_type": "movement|rest|meal|medication",
+              "description": "活动描述",
+              "timestamp": "ISO8601时间戳"
+            }
+            """
+            try:
+                data = request.get_json()
+                if not data:
+                    return jsonify({'message': '未接收到有效数据'}), 400
+                
+                activity = {
+                    'activity_type': data.get('activity_type', 'other'),
+                    'description': data.get('description', ''),
+                    'timestamp': data.get('timestamp') or datetime.now().isoformat(),
+                }
+                
+                # 保存活动记录
+                activities = self.load_json_data('activity_records.json') or []
+                activities.append(activity)
+                
+                # 只保留最近200条记录
+                if len(activities) > 200:
+                    activities = activities[-200:]
+                
+                if self.save_json_data(activities, 'activity_records.json'):
+                    logger.info(f"[{datetime.now()}] 患者活动已记录: {activity}")
+                    return jsonify({'message': '活动记录已保存'}), 200
+                return jsonify({'message': '保存失败'}), 500
+            except Exception as e:
+                logger.error(f"保存活动记录时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/get_activity_stats', methods=['GET'])
+        def get_activity_stats():
+            """
+            获取患者活动统计信息
+            返回: 最近7天、24小时、1小时的活动数据及图表数据
+            """
+            try:
+                from datetime import timedelta
+                activities = self.load_json_data('activity_records.json') or []
+                
+                now = datetime.now()
+                one_hour_ago = now - timedelta(hours=1)
+                one_day_ago = now - timedelta(days=1)
+                seven_days_ago = now - timedelta(days=7)
+                
+                # 统计不同时间段的活动
+                one_hour_activities = []
+                one_day_activities = []
+                seven_day_activities = []
+                
+                for activity in activities:
+                    try:
+                        activity_time = datetime.fromisoformat(activity['timestamp'])
+                        if activity_time > one_hour_ago:
+                            one_hour_activities.append(activity)
+                        if activity_time > one_day_ago:
+                            one_day_activities.append(activity)
+                        if activity_time > seven_days_ago:
+                            seven_day_activities.append(activity)
+                    except Exception:
+                        pass
+                
+                # 统计各类型活动次数
+                def count_by_type(activities_list):
+                    counts = {}
+                    for activity in activities_list:
+                        atype = activity.get('activity_type', 'other')
+                        counts[atype] = counts.get(atype, 0) + 1
+                    return counts
+                
+                # 按小时统计最近24小时的活动
+                hourly_counts = [0] * 24
+                for activity in one_day_activities:
+                    try:
+                        activity_time = datetime.fromisoformat(activity['timestamp'])
+                        hour = activity_time.hour
+                        hourly_counts[hour] += 1
+                    except Exception:
+                        pass
+                
+                return jsonify({
+                    'hour': {
+                        'count': len(one_hour_activities),
+                        'by_type': count_by_type(one_hour_activities)
+                    },
+                    'day': {
+                        'count': len(one_day_activities),
+                        'by_type': count_by_type(one_day_activities),
+                        'hourly': hourly_counts  # 24小时数据，供图表使用
+                    },
+                    'week': {
+                        'count': len(seven_day_activities),
+                        'by_type': count_by_type(seven_day_activities)
+                    },
+                    'timestamp': datetime.now().isoformat()
+                }), 200
+            except Exception as e:
+                logger.error(f"获取活动统计时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/update_dog_location', methods=['POST'])
+        def update_dog_location():
+            """
+            更新机器狗位置信息
+            请求体:
+            {
+              "lat": 纬度,
+              "lon": 经度,
+              "location_name": "位置名称",
+              "timestamp": "ISO8601时间戳"
+            }
+            """
+            try:
+                data = request.get_json()
+                if not data or 'lat' not in data or 'lon' not in data:
+                    return jsonify({'message': '缺少必要的GPS信息'}), 400
+                
+                location = {
+                    'lat': data.get('lat'),
+                    'lon': data.get('lon'),
+                    'location_name': data.get('location_name', ''),
+                    'timestamp': data.get('timestamp') or datetime.now().isoformat(),
+                }
+                
+                # 保存最新位置
+                if self.save_json_data(location, 'dog_location.json'):
+                    logger.info(f"[{datetime.now()}] 机器狗位置已更新: {location}")
+                    return jsonify({'message': '位置信息已保存'}), 200
+                return jsonify({'message': '保存失败'}), 500
+            except Exception as e:
+                logger.error(f"保存位置信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/get_dog_location', methods=['GET'])
+        def get_dog_location():
+            """
+            获取机器狗当前位置
+            """
+            try:
+                location = self.load_json_data('dog_location.json')
+                if location:
+                    return jsonify(location), 200
+                return jsonify({
+                    'lat': 0,
+                    'lon': 0,
+                    'location_name': '未知位置',
+                    'timestamp': datetime.now().isoformat()
+                }), 200
+            except Exception as e:
+                logger.error(f"获取位置信息时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/update_companion_status', methods=['POST'])
+        def update_companion_status():
+            """
+            更新机器狗陪伴状态
+            请求体:
+            {
+              "is_accompanying": true/false,
+              "timestamp": "ISO8601时间戳"
+            }
+            """
+            try:
+                data = request.get_json()
+                if data is None:
+                    return jsonify({'message': '未接收到有效数据'}), 400
+                
+                status = {
+                    'is_accompanying': bool(data.get('is_accompanying', False)),
+                    'timestamp': data.get('timestamp') or datetime.now().isoformat(),
+                }
+                
+                # 保存当前陪伴状态
+                if self.save_json_data(status, 'companion_status.json'):
+                    logger.info(f"[{datetime.now()}] 陪伴状态已更新: {status}")
+                    return jsonify({'message': '状态已保存'}), 200
+                return jsonify({'message': '保存失败'}), 500
+            except Exception as e:
+                logger.error(f"保存陪伴状态时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/get_companion_status', methods=['GET'])
+        def get_companion_status():
+            """
+            获取机器狗陪伴状态
+            """
+            try:
+                status = self.load_json_data('companion_status.json')
+                if status:
+                    # 检查最后一次更新是否超过5分钟，如果是则认为不陪伴
+                    try:
+                        last_update = datetime.fromisoformat(status['timestamp'])
+                        if (datetime.now() - last_update).total_seconds() > 300:
+                            status['is_accompanying'] = False
+                    except Exception:
+                        pass
+                    return jsonify(status), 200
+                return jsonify({
+                    'is_accompanying': False,
+                    'last_seen': None,
+                    'timestamp': datetime.now().isoformat()
+                }), 200
+            except Exception as e:
+                logger.error(f"获取陪伴状态时出错: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        # ========== 视频直播 API ==========
+        @self.app.route('/get_available_videos', methods=['GET'])
+        def get_available_videos():
+            """
+            获取可用的视频文件列表
+            """
+            try:
+                videos = []
+                if os.path.exists(self.video_folder):
+                    for filename in os.listdir(self.video_folder):
+                        filepath = os.path.join(self.video_folder, filename)
+                        if os.path.isfile(filepath):
+                            videos.append({
+                                'filename': filename,
+                                'size': os.path.getsize(filepath),
+                                'available': True
+                            })
+                
+                return jsonify({
+                    'videos': videos,
+                    'count': len(videos)
+                }), 200
+            except Exception as e:
+                logger.error(f"获取视频列表失败: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/start_video_stream', methods=['POST'])
+        def start_video_stream_route():
+            """
+            启动视频直播
+            请求体:
+            {
+              "video_filename": "example.mp4"
+            }
+            """
+            try:
+                data = request.get_json()
+                if not data or 'video_filename' not in data:
+                    return jsonify({'message': '缺少video_filename参数'}), 400
+                
+                video_filename = data.get('video_filename')
+                if self.start_video_stream(video_filename):
+                    return jsonify({'message': '视频直播已启动', 'video': video_filename}), 200
+                else:
+                    return jsonify({'message': '启动视频直播失败'}), 400
+            except Exception as e:
+                logger.error(f"启动视频直播路由错误: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/stop_video_stream', methods=['POST'])
+        def stop_video_stream_route():
+            """
+            停止视频直播
+            """
+            try:
+                if self.stop_video_stream():
+                    return jsonify({'message': '视频直播已停止'}), 200
+                else:
+                    return jsonify({'message': '停止视频直播失败'}), 400
+            except Exception as e:
+                logger.error(f"停止视频直播路由错误: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/video_feed')
+        def video_feed():
+            """
+            获取视频直播流（MJPEG格式）
+            """
+            try:
+                if not self.is_streaming or not self.video_stream_path:
+                    return jsonify({'message': '视频直播未启动'}), 400
+                
+                if not os.path.exists(self.video_stream_path):
+                    logger.error(f"视频文件不存在: {self.video_stream_path}")
+                    return jsonify({'message': '视频文件不存在'}), 404
+                
+                return Response(
+                    self.get_video_stream_generator(self.video_stream_path),
+                    mimetype='multipart/x-mixed-replace; boundary=frame'
+                )
+            except Exception as e:
+                logger.error(f"视频流端点错误: {e}")
+                return jsonify({'message': '服务器内部错误'}), 500
+
+        @self.app.route('/get_stream_status', methods=['GET'])
+        def get_stream_status():
+            """
+            获取视频直播状态
+            """
+            try:
+                return jsonify({
+                    'is_streaming': self.is_streaming,
+                    'video_file': getattr(self, 'video_stream_path', None),
+                    'timestamp': datetime.now().isoformat()
+                }), 200
+            except Exception as e:
+                logger.error(f"获取直播状态失败: {e}")
                 return jsonify({'message': '服务器内部错误'}), 500
 
         # 错误处理

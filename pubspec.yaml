@@ -32,6 +32,9 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^0.13.6
+  fl_chart: ^0.68.0
+  flutter_webrtc: ^1.2.1
+  socket_io_client: ^2.0.3
 
 dev_dependencies:
   flutter_test:

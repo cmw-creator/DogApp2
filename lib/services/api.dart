@@ -268,11 +268,155 @@ class Api {
     try {
       final resp = await http
           .get(Uri.parse('$serverUrl/get_photo_info'))
+  // 患者活动监控：上传活动记录
+  static Future<bool> uploadActivity(String activityType, String description) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/upload_activity'),
+              headers: _headers,
+              body: json.encode({
+                'activity_type': activityType,
+                'description': description,
+                'timestamp': DateTime.now().toIso8601String()
+              }))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 患者活动监控：获取活动统计 GET /get_activity_stats
+  static Future<Map<String, dynamic>?> getActivityStats() async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$serverUrl/get_activity_stats'))
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200) {
         return json.decode(resp.body) as Map<String, dynamic>;
       }
     } catch (_) {}
     return null;
+  }
+
+  // 机器狗位置：更新位置 POST /update_dog_location
+  static Future<bool> updateDogLocation(
+      double lat, double lon, String? locationName) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/update_dog_location'),
+              headers: _headers,
+              body: json.encode({
+                'lat': lat,
+                'lon': lon,
+                'location_name': locationName ?? '',
+                'timestamp': DateTime.now().toIso8601String()
+              }))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 机器狗位置：获取位置 GET /get_dog_location
+  static Future<Map<String, dynamic>?> getDogLocation() async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$serverUrl/get_dog_location'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // 陪伴状态：更新 POST /update_companion_status
+  static Future<bool> updateCompanionStatus(bool isAccompanying) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/update_companion_status'),
+              headers: _headers,
+              body: json.encode({
+                'is_accompanying': isAccompanying,
+                'timestamp': DateTime.now().toIso8601String()
+              }))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 陪伴状态：获取 GET /get_companion_status
+  static Future<Map<String, dynamic>?> getCompanionStatus() async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$serverUrl/get_companion_status'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // 视频直播：获取可用视频列表 GET /get_available_videos
+  static Future<Map<String, dynamic>?> getAvailableVideos() async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$serverUrl/get_available_videos'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // 视频直播：启动直播 POST /start_video_stream
+  static Future<bool> startVideoStream(String videoFilename) async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/start_video_stream'),
+              headers: _headers,
+              body: json.encode({'video_filename': videoFilename}))
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 视频直播：停止直播 POST /stop_video_stream
+  static Future<bool> stopVideoStream() async {
+    try {
+      final resp = await http
+          .post(Uri.parse('$serverUrl/stop_video_stream'),
+              headers: _headers)
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 视频直播：获取直播状态 GET /get_stream_status
+  static Future<Map<String, dynamic>?> getStreamStatus() async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$serverUrl/get_stream_status'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // 获取视频流URL
+  static String getVideoStreamUrl() {
+    return '$serverUrl/video_feed';
   }
 }
