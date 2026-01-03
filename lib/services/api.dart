@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'local_store.dart';
 
 class Api {
   // 默认服务器地址（dog_server.py 监听 5000 端口）
-  static String serverUrl = 'http://127.0.0.1:5000';
+  static String get serverUrl => LocalStore.apiUrl;
+  static set serverUrl(String value) => LocalStore.apiUrl = value;
 
   static Map<String, String> get _headers => {
         'Content-Type': 'application/json',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api.dart';
+import '../services/local_store.dart';
 
 enum SettingsUserType { patient, family }
 
@@ -112,9 +113,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(12),
             child: Column(children: [
               const ListTile(title: Text('应用设置')),
-              TextField(controller: _serverController, decoration: const InputDecoration(labelText: '服务器地址')),
-              const SizedBox(height: 12),
-              ElevatedButton(onPressed: _save, child: const Text('保存设置')),
+              SwitchListTile(
+                title: const Text('开发者模式'),
+                value: LocalStore.devMode,
+                onChanged: (val) {
+                  setState(() {
+                    LocalStore.devMode = val;
+                  });
+                },
+              ),
+              if (LocalStore.devMode) ...[
+                TextField(
+                  controller: _serverController,
+                  decoration: const InputDecoration(labelText: '服务器地址'),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: ElevatedButton(onPressed: _save, child: const Text('保存设置'))),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      onPressed: () async {
+                        final status = await checkServer();
+                        if (mounted) {
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('服务器状态'),
+                              content: Text(status != null ? '在线' : '无法连接'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: const Text('确定'),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                      },
+                      child: const Text('检查服务器'),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 12),
               ElevatedButton.icon(
                 icon: const Icon(Icons.notifications_active),
@@ -147,40 +188,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(children: [
-              const ListTile(title: Text('服务器')),
-              ElevatedButton(
-                onPressed: () async {
-                  final status = await checkServer();
-                  if (mounted) {
-                    showDialog(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('服务器状态'),
-                        content: Text(status != null ? '在线' : '无法连接'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('确定'),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                },
-                child: const Text('检查服务器'),
-              ),
-            ]),
-          ),
-        ),
+        // 服务器检查已整合到开发者模式设置中
         const SizedBox(height: 12),
         const Card(
           child: ListTile(
             title: Text('应用信息'),
-            subtitle: Text('机器狗APP v1.0.0\n基于Flutter实现'),
+            subtitle: Text('机器狗APP v2.0.1\n基于Flutter实现'),
           ),
         ),
         if (widget.userType == SettingsUserType.family && widget.onLogout != null) ...[

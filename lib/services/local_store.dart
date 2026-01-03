@@ -11,6 +11,8 @@ class LocalStore {
   static const _kBindCode = 'bind_code';
   static const _kBoundPatientCode = 'bound_patient_code';
   static const _kBoundPatientByAccount = 'bound_patient_by_account';
+  static const _kApiUrl = 'api_url';
+  static const _kDevMode = 'dev_mode';
 
   static const _kFixedPatientCode = 'PAT-TEST-001';
   static const _kFixedBindCode = 'BIND-TEST-20260103';
@@ -243,4 +245,10 @@ class LocalStore {
     final taken = intakes.where((m) => m.taken).length;
     return ((taken / intakes.length) * 100).toInt();
   }
+
+  static String get apiUrl => _prefs?.getString(_kApiUrl) ?? 'http://127.0.0.1:5000';
+  static set apiUrl(String value) => _prefs?.setString(_kApiUrl, value);
+
+  static bool get devMode => _prefs?.getBool(_kDevMode) ?? false;
+  static set devMode(bool value) => _prefs?.setBool(_kDevMode, value);
 }

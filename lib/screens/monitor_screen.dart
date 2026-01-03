@@ -42,7 +42,11 @@ class _MonitorScreenState extends State<MonitorScreen> {
 
   Future<void> _initializeWebRTC() async {
     try {
-      _webrtcService = WebRTCService(serverUrl: 'http://localhost:5001');
+      final apiUrl = Uri.parse(Api.serverUrl);
+      final webrtcPort = apiUrl.port + 1;
+      final webrtcUrl = '${apiUrl.scheme}://${apiUrl.host}:$webrtcPort';
+      
+      _webrtcService = WebRTCService(serverUrl: webrtcUrl);
       
       // 设置回调
       _webrtcService!.onRemoteStream = (stream) {
