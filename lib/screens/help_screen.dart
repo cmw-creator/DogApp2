@@ -204,7 +204,7 @@ class _HelpScreenState extends State<HelpScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
+                        color: Colors.white,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Column(
@@ -215,12 +215,14 @@ class _HelpScreenState extends State<HelpScreen> {
                             style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
                           ),
                           const SizedBox(height: 8),
-                          ElevatedButton.icon(
-                            onPressed: showLocationDialog,
-                            icon: const Icon(Icons.volume_up, size: 18),
-                            label: const Text('播报位置'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue.shade700,
+                          Center(
+                            child: ElevatedButton.icon(
+                              onPressed: showLocationDialog,
+                              icon: const Icon(Icons.volume_up, size: 18),
+                              label: const Text('播报位置'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue.shade700,
+                              ),
                             ),
                           ),
                         ],
@@ -258,7 +260,7 @@ class _HelpScreenState extends State<HelpScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.green.shade50,
+                        color: Colors.white,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Column(
@@ -269,12 +271,14 @@ class _HelpScreenState extends State<HelpScreen> {
                             style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
                           ),
                           const SizedBox(height: 8),
-                          ElevatedButton.icon(
-                            onPressed: showNavigateDialog,
-                            icon: const Icon(Icons.directions, size: 18),
-                            label: const Text('启动导航'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green.shade700,
+                          Center(
+                            child: ElevatedButton.icon(
+                              onPressed: showNavigateDialog,
+                              icon: const Icon(Icons.directions, size: 18),
+                              label: const Text('启动导航'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade700,
+                              ),
                             ),
                           ),
                         ],

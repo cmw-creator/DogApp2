@@ -19,9 +19,8 @@ class _MonitorScreenState extends State<MonitorScreen> {
   
   // WebRTC 相关
   WebRTCService? _webrtcService;
-  List<String> _availableVideos = [];
   bool _isStreaming = false;
-  String? _selectedVideoFilename;
+  String? _selectedVideoFilename = 'video.mp4';
   bool _videoLoading = false;
   String? _errorMessage;
   RTCVideoRenderer? _remoteRenderer;
@@ -79,9 +78,6 @@ class _MonitorScreenState extends State<MonitorScreen> {
       // 初始化
       await _webrtcService!.initialize();
       
-      // 加载视频列表
-      await _loadAvailableVideos();
-      
     } catch (e) {
       print('初始化 WebRTC 失败: $e');
       if (mounted) {
@@ -115,25 +111,8 @@ class _MonitorScreenState extends State<MonitorScreen> {
     }
   }
 
-  Future<void> _loadAvailableVideos() async {
-    try {
-      if (_webrtcService != null) {
-        final videos = await _webrtcService!.getAvailableVideos();
-        if (mounted) {
-          setState(() {
-            _availableVideos = videos;
-            if (_availableVideos.isNotEmpty && _selectedVideoFilename == null) {
-              _selectedVideoFilename = _availableVideos[0];
-            }
-          });
-        }
-      }
-    } catch (e) {
-      print('加载视频列表失败: $e');
-    }
-  }
-
   Future<void> _startVideoStream() async {
+    _selectedVideoFilename ??= 'video.mp4';
     if (_selectedVideoFilename == null || _webrtcService == null) return;
     
     setState(() => _videoLoading = true);
@@ -211,33 +190,34 @@ class _MonitorScreenState extends State<MonitorScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '快速提醒',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('一键创建5分钟后的临时提醒'),
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    onPressed: _quickRemind,
-                    icon: const Icon(Icons.alarm),
-                    label: const Text('马上提醒'),
-                  ),
-                ],
+          SizedBox(
+            width: double.infinity,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '快速提醒',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('一键创建5分钟后的临时提醒'),
+                    const SizedBox(height: 12),
+                    Center(
+                      child: ElevatedButton.icon(
+                        onPressed: _quickRemind,
+                        icon: const Icon(Icons.alarm),
+                        label: const Text('马上提醒'),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(160, 44),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('提醒与警报列表（待接入后端数据）'),
             ),
           ),
         ],
@@ -260,9 +240,6 @@ class _MonitorScreenState extends State<MonitorScreen> {
                   const SizedBox(height: 20),
                   // 患者活动图表
                   _buildActivityChart(),
-                  const SizedBox(height: 20),
-                  // 机器狗位置
-                  _buildDogLocationCard(),
                 ],
               ),
             ),
@@ -381,40 +358,6 @@ class _MonitorScreenState extends State<MonitorScreen> {
     );
   }
 
-  Widget _buildDogLocationCard() {
-    if (_dogLocation == null) {
-      return const SizedBox.shrink();
-    }
-
-    final lat = _dogLocation!['lat'] ?? 0.0;
-    final lon = _dogLocation!['lon'] ?? 0.0;
-    final locationName = _dogLocation!['location_name'] ?? '未知位置';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '机器狗位置',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '位置: $locationName',
-              style: const TextStyle(fontSize: 14),
-            ),
-            Text(
-              '坐标: $lat, $lon',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildCompanionStatusCard() {
     if (_companionStatus == null) {
       return const SizedBox.shrink();
@@ -422,6 +365,10 @@ class _MonitorScreenState extends State<MonitorScreen> {
 
     final isAccompanying = _companionStatus!['is_accompanying'] ?? false;
     final timestamp = _companionStatus!['timestamp'] ?? '';
+    final hasLocation = _dogLocation != null;
+    final locationName = _dogLocation?['location_name']?.toString() ?? '未知位置';
+    final lat = _dogLocation?['lat']?.toString() ?? '';
+    final lon = _dogLocation?['lon']?.toString() ?? '';
 
     return Card(
       child: Padding(
@@ -459,6 +406,28 @@ class _MonitorScreenState extends State<MonitorScreen> {
               '最后更新: $timestamp',
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
+            if (hasLocation) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.pets, color: Colors.blue.shade700),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '机器狗位置',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text('位置: $locationName', style: const TextStyle(fontSize: 14)),
+              if (lat.isNotEmpty && lon.isNotEmpty)
+                Text(
+                  '坐标: $lat, $lon',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+            ],
           ],
         ),
       ),
@@ -573,37 +542,6 @@ class _MonitorScreenState extends State<MonitorScreen> {
               '直播控制',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 12),
-            if (_availableVideos.isNotEmpty)
-              DropdownButton<String>(
-                value: _selectedVideoFilename,
-                isExpanded: true,
-                items: _availableVideos.map((video) {
-                  return DropdownMenuItem(
-                    value: video,
-                    child: Text(video),
-                  );
-                }).toList(),
-                onChanged: _isStreaming
-                    ? null
-                    : (value) {
-                        if (value != null) {
-                          setState(() => _selectedVideoFilename = value);
-                        }
-                      },
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  '未找到可用视频文件',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
             const SizedBox(height: 12),
             Row(
               children: [
