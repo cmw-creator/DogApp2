@@ -803,7 +803,8 @@ class DogServer:
                     return jsonify({
                         'message': '人脸照片上传成功!',
                         'face_id': face_id,
-                        'file_path': filename
+                        'file_path': filename,
+                        'asset_path': f"face_detector/known_faces/{filename}",
                     }), 200
                 else:
                     return jsonify({'message': '不支持的文件类型'}), 400
@@ -1749,7 +1750,7 @@ class DogServer:
 
 
     
-    def run_server(self, port=5000):
+    def run_server(self, port=8080):
         """运行Flask服务器"""
         print("启动机器狗控制服务器...")
         print(f"上传目录: {os.path.abspath(self.app.config['UPLOAD_FOLDER'])}")
@@ -1758,7 +1759,7 @@ class DogServer:
         # 使用多线程模式运行
         self.app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
     
-    def start(self, port=5000):
+    def start(self, port=8080):
         """启动服务器线程"""
         server_thread = threading.Thread(target=self.run_server, kwargs={'port': port})
         server_thread.daemon = True

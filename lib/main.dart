@@ -155,19 +155,29 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '机器狗 Flutter 迁移示例',
-      theme: _buildLightTheme(),
-      darkTheme: _buildDarkTheme(),
-      themeMode: _themeMode,
-      home: RootPage(
-        onToggleTheme: _toggleTheme,
-        themeMode: _themeMode,
-      ),
-      builder: (context, child) {
-        return InAppNotificationOverlay(child: child ?? const SizedBox.shrink());
+    return ValueListenableBuilder<double>(
+      valueListenable: LocalStore.fontScaleNotifier,
+      builder: (context, fontScale, _) {
+        return MaterialApp(
+          title: '机器狗 Flutter 迁移示例',
+          theme: _buildLightTheme(),
+          darkTheme: _buildDarkTheme(),
+          themeMode: _themeMode,
+          home: RootPage(
+            onToggleTheme: _toggleTheme,
+            themeMode: _themeMode,
+          ),
+          builder: (context, child) {
+            final media = MediaQuery.of(context);
+            final scaled = MediaQuery(
+              data: media.copyWith(textScaleFactor: fontScale),
+              child: child ?? const SizedBox.shrink(),
+            );
+            return InAppNotificationOverlay(child: scaled);
+          },
+          debugShowCheckedModeBanner: false,
+        );
       },
-      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -184,7 +194,7 @@ class RootPage extends StatefulWidget {
 
 class _RootPageState extends State<RootPage> {
   static const bool _bindingGateEnabled = true; // 需要时可改为 false 关闭绑定强制
-  static const bool _showBindTutorialOnLogin = true; // 需要时可改为 false 关闭弹窗教程
+  static const bool _showBindTutorialOnLogin = false; // 需要时可改为 false 关闭弹窗教程
   static const bool _showBindPromptOnLogin = true; // 登录后直接弹出绑定输入
 
   // 模拟用户类型：'family' 或 'patient'
@@ -205,7 +215,7 @@ class _RootPageState extends State<RootPage> {
   final TextEditingController _bindCodeCtrl = TextEditingController();
 
   // 服务器地址可在 Settings 页面修改（这里是内存保存示例）
-  String serverUrl = 'http://127.0.0.1:5000';
+  String serverUrl = 'http://20.89.159.15:8080';
 
   @override
   void initState() {

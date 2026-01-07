@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../services/api.dart';
+import '../services/local_store.dart';
 import '../services/notification_service.dart';
 import '../services/in_app_notification.dart';
 import 'notification_screen.dart';
@@ -173,6 +175,92 @@ class _ManageScreenState extends State<ManageScreen>
       await Api.updateFaceInfo(result);
       _loadFaceInfo();
     }
+  }
+
+  Future<void> _pickAndSaveMemberPhoto(String memberId) async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result == null || result.files.single.path == null) return;
+
+    // 优先上传到后端（可多端共享）；失败则回退为本地路径显示。
+    final uploaded = await Api.uploadFaceImage(
+      faceId: memberId,
+      filePath: result.files.single.path!,
+    );
+
+    await LocalStore.ensureInit();
+    if (uploaded != null) {
+      final relative = uploaded['asset_path']?.toString() ?? uploaded['file_path']?.toString();
+      if (relative != null && relative.isNotEmpty) {
+        await LocalStore.setFamilyMemberPhotoPath(memberId: memberId, filePath: relative);
+      }
+    } else {
+      await LocalStore.setFamilyMemberPhotoPath(
+        memberId: memberId,
+        filePath: result.files.single.path!,
+      );
+    }
+
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _clearMemberPhoto(String memberId) async {
+    await LocalStore.ensureInit();
+    await LocalStore.setFamilyMemberPhotoPath(memberId: memberId, filePath: '');
+    if (mounted) setState(() {});
+  }
+
+  Widget _buildMemberAvatar(Map<String, dynamic> face) {
+    final id = (face['id'] ?? '').toString();
+    final path = LocalStore.getFamilyMemberPhotoPath(id);
+    final isRemoteAsset = path != null && path.isNotEmpty && !path.contains('\\') && !path.contains(':/') && !path.startsWith('file:');
+    final remoteUrl = isRemoteAsset ? Api.assetUrl(path) : '';
+    final file = (!isRemoteAsset && path != null && path.isNotEmpty) ? File(path) : null;
+    final exists = file != null && file.existsSync();
+
+    Widget child;
+    if (remoteUrl.isNotEmpty) {
+      child = ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(remoteUrl, width: 48, height: 48, fit: BoxFit.cover),
+      );
+    } else if (exists) {
+      child = ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.file(file!, width: 48, height: 48, fit: BoxFit.cover),
+      );
+    } else {
+      child = Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(Icons.person, color: Colors.grey.shade600),
+      );
+    }
+
+    return InkWell(
+      onTap: id.isEmpty ? null : () => _pickAndSaveMemberPhoto(id),
+      borderRadius: BorderRadius.circular(10),
+      child: Stack(
+        children: [
+          child,
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.55),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.all(2),
+              child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showPhotoDialog({Map<String, dynamic>? photo}) async {
@@ -485,14 +573,35 @@ class _ManageScreenState extends State<ManageScreen>
                       itemCount: _faces.length,
                       itemBuilder: (_, index) {
                         final face = _faces[index];
+                        final memberId = (face['id'] ?? '').toString();
                         return Card(
                           margin: const EdgeInsets.symmetric(vertical: 6),
                           child: ListTile(
+                            leading: _buildMemberAvatar(face),
                             title: Text(face['id'] ?? '未知'),
                             subtitle: Text(face['description'] ?? '暂无描述'),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.edit),
-                              onPressed: () => _showFaceDialog(face: face),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: '上传/更换照片',
+                                  icon: const Icon(Icons.photo_camera),
+                                  onPressed: memberId.isEmpty
+                                      ? null
+                                      : () => _pickAndSaveMemberPhoto(memberId),
+                                ),
+                                IconButton(
+                                  tooltip: '移除照片',
+                                  icon: const Icon(Icons.delete_outline),
+                                  onPressed: memberId.isEmpty
+                                      ? null
+                                      : () => _clearMemberPhoto(memberId),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.edit),
+                                  onPressed: () => _showFaceDialog(face: face),
+                                ),
+                              ],
                             ),
                           ),
                         );

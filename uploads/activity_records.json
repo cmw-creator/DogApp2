@@ -1,0 +1,25 @@
+[
+  {"activity_type": "movement", "description": "患者在客厅走动", "timestamp": "2026-01-07T08:00:00"},
+  {"activity_type": "meal", "description": "患者进食早餐", "timestamp": "2026-01-07T08:30:00"},
+  {"activity_type": "rest", "description": "患者坐在沙发上休息", "timestamp": "2026-01-07T09:15:00"},
+  {"activity_type": "medication", "description": "患者按时服药", "timestamp": "2026-01-07T10:00:00"},
+  {"activity_type": "movement", "description": "康复训练步行", "timestamp": "2026-01-07T12:00:00"},
+  {"activity_type": "rest", "description": "午休", "timestamp": "2026-01-07T15:00:00"},
+  {"activity_type": "meal", "description": "患者进食晚餐", "timestamp": "2026-01-07T18:30:00"},
+  {"activity_type": "movement", "description": "室内步行", "timestamp": "2026-01-07T20:00:00"},
+  {"activity_type": "medication", "description": "晚间服药", "timestamp": "2026-01-07T21:00:00"},
+
+  {"activity_type": "movement", "description": "患者在走廊走动", "timestamp": "2026-01-06T09:00:00"},
+  {"activity_type": "meal", "description": "早餐", "timestamp": "2026-01-06T09:30:00"},
+  {"activity_type": "rest", "description": "短暂休息", "timestamp": "2026-01-06T10:00:00"},
+  {"activity_type": "medication", "description": "上午服药", "timestamp": "2026-01-06T10:30:00"},
+  {"activity_type": "movement", "description": "步行训练", "timestamp": "2026-01-06T14:00:00"},
+
+  {"activity_type": "movement", "description": "患者在庭院走动", "timestamp": "2026-01-05T08:45:00"},
+  {"activity_type": "meal", "description": "午餐", "timestamp": "2026-01-05T12:20:00"},
+  {"activity_type": "rest", "description": "午后休息", "timestamp": "2026-01-05T15:10:00"},
+
+  {"activity_type": "movement", "description": "室内步行", "timestamp": "2026-01-04T08:10:00"},
+  {"activity_type": "medication", "description": "早间服药", "timestamp": "2026-01-04T08:30:00"},
+  {"activity_type": "rest", "description": "躺卧休息", "timestamp": "2026-01-04T13:00:00"}
+]

@@ -20,7 +20,7 @@ class AppLauncher:
     def __init__(self):
         self.dog_server = DogServer()
         self.webrtc_server = WebRTCServer()
-        self.api_port = 5000
+        self.api_port = 8080
 
     def start(self):
         def start_dog():

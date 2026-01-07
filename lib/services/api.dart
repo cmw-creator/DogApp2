@@ -515,6 +515,29 @@ class Api {
     } catch (_) {}
     return null;
   }
+
+  // 上传家庭成员（人脸）照片：POST /upload_face_image
+  static Future<Map<String, dynamic>?> uploadFaceImage(
+      {required String faceId, required String filePath}) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return null;
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$serverUrl/upload_face_image'),
+      );
+      request.fields['face_id'] = faceId;
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
+
+      final streamed = await request.send().timeout(const Duration(seconds: 15));
+      final resp = await http.Response.fromStream(streamed);
+      if (resp.statusCode == 200) {
+        return json.decode(resp.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
   // 患者活动监控：上传活动记录
   static Future<bool> uploadActivity(String activityType, String description) async {
     try {

@@ -48,8 +48,8 @@ class _TodayScreenState extends State<TodayScreen> {
 
   void _loadWeather() {
     // 目前用本地模拟；若后端提供天气接口可在此调用 Api.xxx
-    weather = '晴转多云 25°C/18°C';
-    weatherIcon = '☀️';
+    weather = '多云转阴 5°C/0°C';
+    weatherIcon = '☁️';
   }
 
   Future<void> _loadSchedules() async {
@@ -215,6 +215,7 @@ class _TodayScreenState extends State<TodayScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     
     return RefreshIndicator(
       onRefresh: () async {
@@ -237,7 +238,7 @@ class _TodayScreenState extends State<TodayScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  color: Colors.white,
+                  color: scheme.surface,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,14 +254,14 @@ class _TodayScreenState extends State<TodayScreen> {
                                 dateStr,
                                 style: theme.textTheme.headlineMedium?.copyWith(
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.blue.shade900,
+                                  color: scheme.onSurface,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 weekdayStr,
                                 style: theme.textTheme.titleLarge?.copyWith(
-                                  color: Colors.blue.shade700,
+                                  color: scheme.onSurfaceVariant,
                                 ),
                               ),
                             ],
@@ -278,7 +279,7 @@ class _TodayScreenState extends State<TodayScreen> {
                             Text(
                               weather,
                               style: theme.textTheme.titleMedium?.copyWith(
-                                color: Colors.blue.shade800,
+                                color: scheme.onSurface,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),

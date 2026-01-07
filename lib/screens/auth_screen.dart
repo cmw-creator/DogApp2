@@ -73,7 +73,7 @@ class _AuthScreenState extends State<AuthScreen> {
           controller: controller,
           decoration: const InputDecoration(
             labelText: 'API 地址',
-            hintText: 'http://127.0.0.1:5000',
+            hintText: 'http://20.89.159.15:8080',
           ),
         ),
         actions: [
@@ -213,19 +213,9 @@ class _AuthScreenState extends State<AuthScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ToggleButtons(
-              borderRadius: BorderRadius.circular(8),
-              isSelected: [_isLogin, !_isLogin],
-              onPressed: (idx) {
-                setState(() {
-                  _isLogin = idx == 0;
-                  _error = null;
-                });
-              },
-              children: const [
-                Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('登录')),
-                Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('注册')),
-              ],
+            Text(
+              _isLogin ? '登录账号' : '注册新账号',
+              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -245,18 +235,29 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
               ),
             ),
-            if (_isLogin)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
+            Row(
+              children: [
+                if (_isLogin)
+                  TextButton(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('请联系管理员重置密码')),
+                      );
+                    },
+                    child: const Text('忘记密码？'),
+                  ),
+                const Spacer(),
+                TextButton(
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('请联系管理员重置密码')),
-                    );
+                    setState(() {
+                      _isLogin = !_isLogin;
+                      _error = null;
+                    });
                   },
-                  child: const Text('忘记密码？'),
+                  child: Text(_isLogin ? '注册账号' : '已有账号？点击登录'),
                 ),
-              ),
+              ],
+            ),
             const SizedBox(height: 16),
             if (_error != null)
               Padding(
