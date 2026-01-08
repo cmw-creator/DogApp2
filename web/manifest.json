@@ -1,6 +1,6 @@
 {
-    "name": "testapp",
-    "short_name": "testapp",
+    "name": "小影",
+    "short_name": "小影",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../services/api.dart';
@@ -7,6 +8,8 @@ import '../services/local_store.dart';
 import '../services/notification_service.dart';
 import '../services/in_app_notification.dart';
 import 'notification_screen.dart';
+import 'memory_photos_editor.dart';
+import 'memory_qa_editor.dart';
 
 class ManageScreen extends StatefulWidget {
   final void Function(String)? onServerUrlChanged;
@@ -86,8 +89,10 @@ class _ManageScreenState extends State<ManageScreen>
   Future<void> _loadQuestions() async {
     final data = await Api.getFamilyQuestions();
     if (data != null) {
-      setState(() => _questions =
-          data.map((e) => Map<String, dynamic>.from(e)).toList());
+      setState(
+        () =>
+            _questions = data.map((e) => Map<String, dynamic>.from(e)).toList(),
+      );
     }
   }
 
@@ -95,15 +100,18 @@ class _ManageScreenState extends State<ManageScreen>
     final data = await Api.getPhotoInfo();
     if (data != null) {
       final list = data.entries
-          .map((e) => {
-                'photo_id': e.key,
-                ...Map<String, dynamic>.from((e.value ?? {}) as Map),
-              })
+          .map(
+            (e) => {
+              'photo_id': e.key,
+              ...Map<String, dynamic>.from((e.value ?? {}) as Map),
+            },
+          )
           .toList();
 
-      list.sort((a, b) =>
-          ((b['event_date'] ?? b['update_time'] ?? '') as String)
-              .compareTo((a['event_date'] ?? a['update_time'] ?? '') as String));
+      list.sort(
+        (a, b) => ((b['event_date'] ?? b['update_time'] ?? '') as String)
+            .compareTo((a['event_date'] ?? a['update_time'] ?? '') as String),
+      );
       setState(() => _photoMemories = list);
     }
   }
@@ -111,10 +119,16 @@ class _ManageScreenState extends State<ManageScreen>
   Future<void> _loadFaceInfo() async {
     final data = await Api.getFaceInfo();
     if (data != null) {
-      setState(() => _faces = data.entries
-          .map((entry) =>
-              {'id': entry.key, ...Map<String, dynamic>.from(entry.value)})
-          .toList());
+      setState(
+        () => _faces = data.entries
+            .map(
+              (entry) => {
+                'id': entry.key,
+                ...Map<String, dynamic>.from(entry.value),
+              },
+            )
+            .toList(),
+      );
     }
   }
 
@@ -128,15 +142,26 @@ class _ManageScreenState extends State<ManageScreen>
   Future<void> _loadSchedule() async {
     final data = await Api.getSchedules();
     if (data != null) {
-      setState(() => _schedules =
-          data.map((e) => Map<String, dynamic>.from(e)).toList());
+      setState(
+        () =>
+            _schedules = data.map((e) => Map<String, dynamic>.from(e)).toList(),
+      );
     }
   }
 
   Future<void> _showFaceDialog({Map<String, dynamic>? face}) async {
-    final idCtl = TextEditingController(text: face != null ? face['id'] : '');
-    final descCtl =
-        TextEditingController(text: face != null ? face['description'] : '');
+    await LocalStore.ensureInit();
+    final faceId = face != null ? (face['id'] ?? '').toString() : _generateNextFaceId();
+    final nameCtl = TextEditingController(text: face != null ? (face['name'] ?? '') : '');
+    final descCtl = TextEditingController(
+      text: face != null ? face['description'] : '',
+    );
+    String currentPhotoPath = '';
+    if (face != null) {
+      if (faceId.isNotEmpty) {
+        currentPhotoPath = LocalStore.getFamilyMemberPhotoPath(faceId) ?? '';
+      }
+    }
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -144,25 +169,71 @@ class _ManageScreenState extends State<ManageScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '成员编号：$faceId',
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+            ),
+            const SizedBox(height: 8),
             TextField(
-              controller: idCtl,
-              decoration: const InputDecoration(labelText: '成员编号'),
+              controller: nameCtl,
+              decoration: const InputDecoration(labelText: '姓名'),
             ),
             TextField(
               controller: descCtl,
-              decoration: const InputDecoration(labelText: '描述'),
+              decoration: const InputDecoration(labelText: '描述（可选）'),
               maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            StatefulBuilder(
+              builder: (ctx2, setLocal) => Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      (currentPhotoPath.isEmpty)
+                          ? '未设置照片'
+                          : '照片：$currentPhotoPath',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      if (faceId.isEmpty) return;
+                      await _pickAndSaveMemberPhoto(faceId);
+                      final latest =
+                          LocalStore.getFamilyMemberPhotoPath(faceId) ?? '';
+                      setLocal(() => currentPhotoPath = latest);
+                    },
+                    icon: const Icon(Icons.photo_camera),
+                    label: const Text('上传/更换'),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      if (faceId.isEmpty) return;
+                      await _clearMemberPhoto(faceId);
+                      setLocal(() => currentPhotoPath = '');
+                    },
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('移除'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
           ElevatedButton(
             onPressed: () {
-              final faceId = idCtl.text.trim();
-              if (faceId.isEmpty) return;
+              if (faceId.isEmpty || nameCtl.text.trim().isEmpty) return;
               Navigator.pop(ctx, {
                 'face_id': faceId,
+                'name': nameCtl.text.trim(),
                 'description': descCtl.text.trim(),
               });
             },
@@ -189,9 +260,14 @@ class _ManageScreenState extends State<ManageScreen>
 
     await LocalStore.ensureInit();
     if (uploaded != null) {
-      final relative = uploaded['asset_path']?.toString() ?? uploaded['file_path']?.toString();
+      final relative =
+          uploaded['asset_path']?.toString() ??
+          uploaded['file_path']?.toString();
       if (relative != null && relative.isNotEmpty) {
-        await LocalStore.setFamilyMemberPhotoPath(memberId: memberId, filePath: relative);
+        await LocalStore.setFamilyMemberPhotoPath(
+          memberId: memberId,
+          filePath: relative,
+        );
       }
     } else {
       await LocalStore.setFamilyMemberPhotoPath(
@@ -211,17 +287,40 @@ class _ManageScreenState extends State<ManageScreen>
 
   Widget _buildMemberAvatar(Map<String, dynamic> face) {
     final id = (face['id'] ?? '').toString();
-    final path = LocalStore.getFamilyMemberPhotoPath(id);
-    final isRemoteAsset = path != null && path.isNotEmpty && !path.contains('\\') && !path.contains(':/') && !path.startsWith('file:');
+    // 优先使用本地缓存路径，其次使用后端返回的 image_file 相对路径
+    final localPath = LocalStore.getFamilyMemberPhotoPath(id);
+    String? assetPath = face['image_file']?.toString();
+    if (assetPath != null && assetPath.isNotEmpty) {
+      assetPath = assetPath.replaceFirst(RegExp(r'^/'), '');
+    }
+
+    String? path = localPath;
+    bool isRemoteAsset = false;
+
+    if (path == null || path.isEmpty) {
+      path = assetPath ?? '';
+    }
+
+    isRemoteAsset =
+        path.isNotEmpty &&
+        !path.contains('\\') &&
+        !path.contains(':/') &&
+        !path.startsWith('file:');
+
     final remoteUrl = isRemoteAsset ? Api.assetUrl(path) : '';
-    final file = (!isRemoteAsset && path != null && path.isNotEmpty) ? File(path) : null;
+    final file = (!isRemoteAsset && path.isNotEmpty) ? File(path) : null;
     final exists = file != null && file.existsSync();
 
     Widget child;
     if (remoteUrl.isNotEmpty) {
       child = ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        child: Image.network(remoteUrl, width: 48, height: 48, fit: BoxFit.cover),
+        child: Image.network(
+          remoteUrl,
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+        ),
       );
     } else if (exists) {
       child = ClipRRect(
@@ -240,43 +339,33 @@ class _ManageScreenState extends State<ManageScreen>
       );
     }
 
-    return InkWell(
-      onTap: id.isEmpty ? null : () => _pickAndSaveMemberPhoto(id),
-      borderRadius: BorderRadius.circular(10),
-      child: Stack(
-        children: [
-          child,
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.55),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              padding: const EdgeInsets.all(2),
-              child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    );
+    // 统一使用右侧的编辑按钮进行修改（包括上传/更换照片），
+    // 头像仅作为显示，不再直接响应点击上传。
+    return ClipRRect(borderRadius: BorderRadius.circular(10), child: child);
   }
 
   Future<void> _showPhotoDialog({Map<String, dynamic>? photo}) async {
-    final idCtl = TextEditingController(text: photo != null ? photo['photo_id'] : '');
-    final titleCtl =
-        TextEditingController(text: photo != null ? photo['title'] ?? '' : '');
+    final idCtl = TextEditingController(
+      text: photo != null ? photo['photo_id'] : '',
+    );
+    final titleCtl = TextEditingController(
+      text: photo != null ? photo['title'] ?? '' : '',
+    );
     final dateCtl = TextEditingController(
-        text: photo != null ? (photo['event_date'] ?? '') : '');
+      text: photo != null ? (photo['event_date'] ?? '') : '',
+    );
     final locationCtl = TextEditingController(
-        text: photo != null ? (photo['location'] ?? '') : '');
+      text: photo != null ? (photo['location'] ?? '') : '',
+    );
     final tagsCtl = TextEditingController(
-        text: photo != null ? _joinList(photo['tags']) : '');
+      text: photo != null ? _joinList(photo['tags']) : '',
+    );
     final peopleCtl = TextEditingController(
-        text: photo != null ? _joinList(photo['people']) : '');
+      text: photo != null ? _joinList(photo['people']) : '',
+    );
     final descCtl = TextEditingController(
-        text: photo != null ? (photo['description'] ?? '') : '');
+      text: photo != null ? (photo['description'] ?? '') : '',
+    );
 
     String imagePath = photo != null ? (photo['image_file'] ?? '') : '';
 
@@ -291,7 +380,9 @@ class _ManageScreenState extends State<ManageScreen>
               children: [
                 TextField(
                   controller: idCtl,
-                  decoration: const InputDecoration(labelText: '照片编号（例：photo_00004）'),
+                  decoration: const InputDecoration(
+                    labelText: '照片编号（例：photo_00004）',
+                  ),
                   enabled: photo == null,
                 ),
                 TextField(
@@ -300,7 +391,9 @@ class _ManageScreenState extends State<ManageScreen>
                 ),
                 TextField(
                   controller: dateCtl,
-                  decoration: const InputDecoration(labelText: '拍摄日期，格式：YYYY-MM-DD'),
+                  decoration: const InputDecoration(
+                    labelText: '拍摄日期，格式：YYYY-MM-DD',
+                  ),
                 ),
                 TextField(
                   controller: locationCtl,
@@ -324,9 +417,7 @@ class _ManageScreenState extends State<ManageScreen>
                   children: [
                     Expanded(
                       child: Text(
-                        imagePath.isEmpty
-                            ? '未选择图片'
-                            : '已上传：$imagePath',
+                        imagePath.isEmpty ? '未选择图片' : '已上传：$imagePath',
                         style: const TextStyle(fontSize: 13),
                       ),
                     ),
@@ -348,7 +439,10 @@ class _ManageScreenState extends State<ManageScreen>
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
             ElevatedButton(
               onPressed: () {
                 final id = _normalizePhotoId(idCtl.text.trim());
@@ -377,11 +471,16 @@ class _ManageScreenState extends State<ManageScreen>
     }
   }
 
-  Future<void> _showMemoryDialog({Map<String, dynamic>? question, int? index}) async {
-    final questionCtl =
-        TextEditingController(text: question != null ? question['question'] : '');
-    final answerCtl =
-        TextEditingController(text: question != null ? question['answer'] : '');
+  Future<void> _showMemoryDialog({
+    Map<String, dynamic>? question,
+    int? index,
+  }) async {
+    final questionCtl = TextEditingController(
+      text: question != null ? question['question'] : '',
+    );
+    final answerCtl = TextEditingController(
+      text: question != null ? question['answer'] : '',
+    );
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -389,15 +488,26 @@ class _ManageScreenState extends State<ManageScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: questionCtl, decoration: const InputDecoration(labelText: '问题')),
-            TextField(controller: answerCtl, decoration: const InputDecoration(labelText: '回答')),
+            TextField(
+              controller: questionCtl,
+              decoration: const InputDecoration(labelText: '问题'),
+            ),
+            TextField(
+              controller: answerCtl,
+              decoration: const InputDecoration(labelText: '回答'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
           ElevatedButton(
             onPressed: () {
-              if (questionCtl.text.trim().isEmpty || answerCtl.text.trim().isEmpty) return;
+              if (questionCtl.text.trim().isEmpty ||
+                  answerCtl.text.trim().isEmpty)
+                return;
               Navigator.pop(ctx, {
                 if (index != null) 'question_id': index,
                 'question': questionCtl.text.trim(),
@@ -416,10 +526,12 @@ class _ManageScreenState extends State<ManageScreen>
   }
 
   Future<void> _showMedicineDialog({Map<String, dynamic>? medicine}) async {
-    final idCtl =
-        TextEditingController(text: medicine != null ? medicine['id'] : '');
+    final idCtl = TextEditingController(
+      text: medicine != null ? medicine['id'] : '',
+    );
     final descCtl = TextEditingController(
-        text: medicine != null ? medicine['description'] : '');
+      text: medicine != null ? medicine['description'] : '',
+    );
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -427,7 +539,10 @@ class _ManageScreenState extends State<ManageScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: idCtl, decoration: const InputDecoration(labelText: '药品编号')),
+            TextField(
+              controller: idCtl,
+              decoration: const InputDecoration(labelText: '药品编号'),
+            ),
             TextField(
               controller: descCtl,
               decoration: const InputDecoration(labelText: '说明'),
@@ -436,7 +551,10 @@ class _ManageScreenState extends State<ManageScreen>
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
           ElevatedButton(
             onPressed: () {
               final medId = idCtl.text.trim();
@@ -472,7 +590,10 @@ class _ManageScreenState extends State<ManageScreen>
     _loadQuestions();
   }
 
-  Future<void> _toggleSchedule(Map<String, dynamic> schedule, bool? value) async {
+  Future<void> _toggleSchedule(
+    Map<String, dynamic> schedule,
+    bool? value,
+  ) async {
     await Api.upsertSchedule({
       'schedule_id': schedule['id'],
       'time': schedule['time'],
@@ -493,10 +614,14 @@ class _ManageScreenState extends State<ManageScreen>
     String? initialEvent,
   }) async {
     final timeCtl = TextEditingController(
-        text: schedule != null ? schedule['time'] : (initialTime ?? ''));
+      text: schedule != null ? schedule['time'] : (initialTime ?? ''),
+    );
     final eventCtl = TextEditingController(
-        text: schedule != null ? schedule['event'] : (initialEvent ?? ''));
-    bool completed = schedule != null ? (schedule['completed'] ?? false) : false;
+      text: schedule != null ? schedule['event'] : (initialEvent ?? ''),
+    );
+    bool completed = schedule != null
+        ? (schedule['completed'] ?? false)
+        : false;
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -506,8 +631,14 @@ class _ManageScreenState extends State<ManageScreen>
           builder: (context, setStateBuilder) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: timeCtl, decoration: const InputDecoration(labelText: '时间')),
-              TextField(controller: eventCtl, decoration: const InputDecoration(labelText: '事件')),
+              TextField(
+                controller: timeCtl,
+                decoration: const InputDecoration(labelText: '时间'),
+              ),
+              TextField(
+                controller: eventCtl,
+                decoration: const InputDecoration(labelText: '事件'),
+              ),
               CheckboxListTile(
                 value: completed,
                 onChanged: (value) =>
@@ -519,7 +650,10 @@ class _ManageScreenState extends State<ManageScreen>
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
           ElevatedButton(
             onPressed: () {
               final payload = {
@@ -559,7 +693,7 @@ class _ManageScreenState extends State<ManageScreen>
                 onPressed: _loadFaceInfo,
                 icon: const Icon(Icons.refresh),
                 tooltip: '刷新成员列表',
-              )
+              ),
             ],
           ),
         ),
@@ -567,46 +701,42 @@ class _ManageScreenState extends State<ManageScreen>
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _faces.isEmpty
-                  ? const Center(child: Text('暂无家庭成员人脸数据'))
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _faces.length,
-                      itemBuilder: (_, index) {
-                        final face = _faces[index];
-                        final memberId = (face['id'] ?? '').toString();
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ListTile(
-                            leading: _buildMemberAvatar(face),
-                            title: Text(face['id'] ?? '未知'),
-                            subtitle: Text(face['description'] ?? '暂无描述'),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  tooltip: '上传/更换照片',
-                                  icon: const Icon(Icons.photo_camera),
-                                  onPressed: memberId.isEmpty
-                                      ? null
-                                      : () => _pickAndSaveMemberPhoto(memberId),
-                                ),
-                                IconButton(
-                                  tooltip: '移除照片',
-                                  icon: const Icon(Icons.delete_outline),
-                                  onPressed: memberId.isEmpty
-                                      ? null
-                                      : () => _clearMemberPhoto(memberId),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  onPressed: () => _showFaceDialog(face: face),
-                                ),
-                              ],
+              ? const Center(child: Text('暂无家庭成员人脸数据'))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _faces.length,
+                  itemBuilder: (_, index) {
+                    final face = _faces[index];
+                    final memberId = (face['id'] ?? '').toString();
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        leading: _buildMemberAvatar(face),
+                        title: Text(
+                          (face['name'] ?? '').toString().isNotEmpty
+                              ? face['name']
+                              : (face['id'] ?? '未知'),
+                        ),
+                        subtitle: Text(
+                          [
+                            face['id'] ?? '',
+                            if ((face['description'] ?? '').toString().isNotEmpty)
+                              face['description'],
+                          ].where((e) => e.toString().isNotEmpty).join(' · '),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _showFaceDialog(face: face),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -629,7 +759,7 @@ class _ManageScreenState extends State<ManageScreen>
                 icon: const Icon(Icons.refresh),
                 tooltip: '刷新日程',
                 onPressed: _loadSchedule,
-              )
+              ),
             ],
           ),
         ),
@@ -637,40 +767,41 @@ class _ManageScreenState extends State<ManageScreen>
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _schedules.isEmpty
-                  ? const Center(child: Text('当前没有安排'))
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _schedules.length,
-                      itemBuilder: (_, index) {
-                        final schedule = _schedules[index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ListTile(
-                            leading: Checkbox(
-                              value: schedule['completed'] ?? false,
-                              onChanged: (value) =>
-                                  _toggleSchedule(schedule, value),
+              ? const Center(child: Text('当前没有安排'))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _schedules.length,
+                  itemBuilder: (_, index) {
+                    final schedule = _schedules[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        leading: Checkbox(
+                          value: schedule['completed'] ?? false,
+                          onChanged: (value) =>
+                              _toggleSchedule(schedule, value),
+                        ),
+                        title: Text(
+                          '${schedule['time']} - ${schedule['event']}',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () =>
+                                  _showScheduleDialog(schedule: schedule),
                             ),
-                            title: Text('${schedule['time']} - ${schedule['event']}'),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  onPressed: () =>
-                                      _showScheduleDialog(schedule: schedule),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  onPressed: () =>
-                                      _deleteSchedule(schedule['id']),
-                                ),
-                              ],
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () => _deleteSchedule(schedule['id']),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -678,6 +809,7 @@ class _ManageScreenState extends State<ManageScreen>
 
   Widget _buildMemoryTab() {
     final spinner = _loading && _photoMemories.isEmpty && _questions.isEmpty;
+    const int previewCount = 5; // 记忆库主页预览数量
 
     return spinner
         ? const Center(child: CircularProgressIndicator())
@@ -697,6 +829,17 @@ class _ManageScreenState extends State<ManageScreen>
                       label: const Text('新增回忆照片'),
                     ),
                     const Spacer(),
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const MemoryPhotosEditorScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('查看更多'),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.refresh),
                       tooltip: '刷新回忆数据',
@@ -711,57 +854,66 @@ class _ManageScreenState extends State<ManageScreen>
                     child: Center(child: Text('暂无回忆照片')),
                   )
                 else
-                  ..._photoMemories.map(
-                    (item) {
-                      final imageUrl = Api.assetUrl(item['image_file']?.toString());
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 6),
-                        child: ListTile(
-                          leading: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: SizedBox(
-                              width: 56,
-                              height: 56,
-                              child: imageUrl.isNotEmpty
-                                  ? Image.network(imageUrl, fit: BoxFit.cover)
-                                  : Container(
-                                      color: Colors.grey.shade200,
-                                      child: const Icon(Icons.photo, color: Colors.grey),
+                  ..._photoMemories.take(previewCount).map((item) {
+                    final imageUrl = Api.assetUrl(
+                      item['image_file']?.toString(),
+                    );
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: SizedBox(
+                            width: 56,
+                            height: 56,
+                            child: imageUrl.isNotEmpty
+                                ? Image.network(imageUrl, fit: BoxFit.cover)
+                                : Container(
+                                    color: Colors.grey.shade200,
+                                    child: const Icon(
+                                      Icons.photo,
+                                      color: Colors.grey,
                                     ),
-                            ),
-                          ),
-                          title: Text(item['title']?.toString() ?? '未命名回忆'),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if ((item['event_date'] ?? '').toString().isNotEmpty)
-                                Text('日期: ${item['event_date']}',
-                                    style: const TextStyle(fontSize: 12)),
-                              if ((item['description'] ?? '').toString().isNotEmpty)
-                                Text(
-                                  item['description'],
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                            ],
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit),
-                                onPressed: () => _showPhotoDialog(photo: item),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete),
-                                onPressed: () => _deletePhoto(item['photo_id']),
-                              ),
-                            ],
+                                  ),
                           ),
                         ),
-                      );
-                    },
-                  ),
+                        title: Text(item['title']?.toString() ?? '未命名回忆'),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if ((item['event_date'] ?? '')
+                                .toString()
+                                .isNotEmpty)
+                              Text(
+                                '日期: ${item['event_date']}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            if ((item['description'] ?? '')
+                                .toString()
+                                .isNotEmpty)
+                              Text(
+                                item['description'],
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                          ],
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _showPhotoDialog(photo: item),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () => _deletePhoto(item['photo_id']),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
 
                 const SizedBox(height: 16),
                 const Divider(),
@@ -774,6 +926,17 @@ class _ManageScreenState extends State<ManageScreen>
                       label: const Text('新增记忆问答'),
                     ),
                     const Spacer(),
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const MemoryQaEditorScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('查看更多'),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.refresh),
                       tooltip: '刷新问答',
@@ -787,7 +950,7 @@ class _ManageScreenState extends State<ManageScreen>
                     child: Center(child: Text('暂无记忆问答')),
                   )
                 else
-                  ...List.generate(_questions.length, (index) {
+                  ...List.generate(_questions.length > previewCount ? previewCount : _questions.length, (index) {
                     final item = _questions[index];
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -799,7 +962,10 @@ class _ManageScreenState extends State<ManageScreen>
                           children: [
                             IconButton(
                               icon: const Icon(Icons.edit),
-                              onPressed: () => _showMemoryDialog(question: item, index: index),
+                              onPressed: () => _showMemoryDialog(
+                                question: item,
+                                index: index,
+                              ),
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete),
@@ -835,7 +1001,7 @@ class _ManageScreenState extends State<ManageScreen>
                 icon: const Icon(Icons.refresh),
                 tooltip: '刷新药品',
                 onPressed: _loadMedicine,
-              )
+              ),
             ],
           ),
         ),
@@ -843,37 +1009,36 @@ class _ManageScreenState extends State<ManageScreen>
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : entries.isEmpty
-                  ? const Center(child: Text('暂无药品记录'))
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: entries.length,
-                      itemBuilder: (_, index) {
-                        final entry = entries[index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ListTile(
-                            title: Text(entry['id'] ?? ''),
-                            subtitle:
-                                Text(entry['description'] ?? '暂无说明'),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  onPressed: () =>
-                                      _showMedicineDialog(medicine: entry),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  onPressed: () =>
-                                      _deleteMedicine(entry['id'] ?? ''),
-                                ),
-                              ],
+              ? const Center(child: Text('暂无药品记录'))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: entries.length,
+                  itemBuilder: (_, index) {
+                    final entry = entries[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        title: Text(entry['id'] ?? ''),
+                        subtitle: Text(entry['description'] ?? '暂无说明'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () =>
+                                  _showMedicineDialog(medicine: entry),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () =>
+                                  _deleteMedicine(entry['id'] ?? ''),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -923,9 +1088,28 @@ class _ManageScreenState extends State<ManageScreen>
     return '';
   }
 
+  String _generateNextFaceId() {
+    int maxId = 0;
+    for (final face in _faces) {
+      final idStr = (face['id'] ?? '').toString();
+      final match = RegExp(r'face_(\d+)').firstMatch(idStr);
+      if (match != null) {
+        final num = int.tryParse(match.group(1) ?? '0') ?? 0;
+        maxId = max(maxId, num);
+      }
+    }
+    final next = maxId + 1;
+    return 'face_${next.toString().padLeft(5, '0')}';
+  }
+
   String _normalizePhotoId(String id) {
     if (id.isEmpty) return '';
     return id.startsWith('photo_') ? id : 'photo_$id';
+  }
+
+  String _normalizeFaceId(String id) {
+    if (id.isEmpty) return '';
+    return id.startsWith('face_') ? id : 'face_$id';
   }
 
   Future<String?> _pickAndUploadImage(String photoId) async {
@@ -937,9 +1121,9 @@ class _ManageScreenState extends State<ManageScreen>
       filePath: result.files.single.path!,
     );
     if (uploaded != null) {
-      return uploaded['asset_path']?.toString() ?? uploaded['file_path']?.toString();
+      return uploaded['asset_path']?.toString() ??
+          uploaded['file_path']?.toString();
     }
     return null;
   }
-
 }

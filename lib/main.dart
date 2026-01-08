@@ -159,7 +159,7 @@ class _MyAppState extends State<MyApp> {
       valueListenable: LocalStore.fontScaleNotifier,
       builder: (context, fontScale, _) {
         return MaterialApp(
-          title: '机器狗 Flutter 迁移示例',
+          title: '机器狗',
           theme: _buildLightTheme(),
           darkTheme: _buildDarkTheme(),
           themeMode: _themeMode,
@@ -494,7 +494,7 @@ class _RootPageState extends State<RootPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(userType == 'patient' ? '患者端' : '家属端'),
+        title: Text(userType == 'patient' ? '您好，张先生' : '您好，张女士'),
         actions: [
           IconButton(
             icon: Icon(widget.themeMode == ThemeMode.dark ? Icons.dark_mode : Icons.light_mode),

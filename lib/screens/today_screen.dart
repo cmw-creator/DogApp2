@@ -212,6 +212,25 @@ class _TodayScreenState extends State<TodayScreen> {
     _notifSub?.cancel();
     NotificationService.instance.stop();
   }
+
+  Future<void> _toggleScheduleCompleted(
+      Map<String, dynamic> schedule, bool value) async {
+    final payload = {
+      'schedule_id': schedule['id'],
+      'time': schedule['time'],
+      'event': schedule['event'],
+      'completed': value,
+    };
+
+    setState(() {
+      final idx = _schedules.indexWhere((e) => e['id'] == schedule['id']);
+      if (idx != -1) {
+        _schedules[idx]['completed'] = value;
+      }
+    });
+
+    await Api.upsertSchedule(payload);
+  }
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -533,7 +552,7 @@ class _TodayScreenState extends State<TodayScreen> {
     required ThemeData theme,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -559,11 +578,10 @@ class _TodayScreenState extends State<TodayScreen> {
                   ),
                 ),
                 if (!isLast)
-                  Expanded(
-                    child: Container(
-                      width: 2,
-                      color: theme.colorScheme.outline.withOpacity(0.2),
-                    ),
+                  Container(
+                    height: 36,
+                    width: 2,
+                    color: theme.colorScheme.outline.withOpacity(0.2),
                   ),
               ],
             ),
@@ -572,8 +590,8 @@ class _TodayScreenState extends State<TodayScreen> {
             Expanded(
               child: Padding(
                 padding: EdgeInsets.only(
-                  top: 8,
-                  bottom: isLast ? 16 : 20,
+                  top: 6,
+                  bottom: isLast ? 12 : 6,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -597,6 +615,24 @@ class _TodayScreenState extends State<TodayScreen> {
                             : null,
                         fontWeight: FontWeight.w500,
                       ),
+                    ),
+                    Row(
+                      children: [
+                        const Spacer(),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('已完成'),
+                            Checkbox(
+                              value: isCompleted,
+                              onChanged: (value) {
+                                if (value == null) return;
+                                _toggleScheduleCompleted(schedule, value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),

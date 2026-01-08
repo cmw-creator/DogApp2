@@ -16,7 +16,7 @@ class _MonitorScreenState extends State<MonitorScreen> {
   Map<String, dynamic>? _dogLocation;
   Map<String, dynamic>? _companionStatus;
   bool _isLoading = true;
-  
+
   // WebRTC 相关
   WebRTCService? _webrtcService;
   bool _isStreaming = false;
@@ -44,9 +44,9 @@ class _MonitorScreenState extends State<MonitorScreen> {
       final apiUrl = Uri.parse(Api.serverUrl);
       final webrtcPort = apiUrl.port + 1;
       final webrtcUrl = '${apiUrl.scheme}://${apiUrl.host}:$webrtcPort';
-      
+
       _webrtcService = WebRTCService(serverUrl: webrtcUrl);
-      
+
       // 设置回调
       _webrtcService!.onRemoteStream = (stream) {
         if (mounted) {
@@ -55,18 +55,18 @@ class _MonitorScreenState extends State<MonitorScreen> {
           });
         }
       };
-      
+
       _webrtcService!.onError = (error) {
         if (mounted) {
           setState(() {
             _errorMessage = error;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('错误: $error')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('错误: $error')));
         }
       };
-      
+
       _webrtcService!.onDisconnected = () {
         if (mounted) {
           setState(() {
@@ -74,10 +74,9 @@ class _MonitorScreenState extends State<MonitorScreen> {
           });
         }
       };
-      
+
       // 初始化
       await _webrtcService!.initialize();
-      
     } catch (e) {
       print('初始化 WebRTC 失败: $e');
       if (mounted) {
@@ -114,9 +113,9 @@ class _MonitorScreenState extends State<MonitorScreen> {
   Future<void> _startVideoStream() async {
     _selectedVideoFilename ??= 'video.mp4';
     if (_selectedVideoFilename == null || _webrtcService == null) return;
-    
+
     setState(() => _videoLoading = true);
-    
+
     try {
       await _webrtcService!.startStream(_selectedVideoFilename!);
       if (mounted) {
@@ -138,9 +137,9 @@ class _MonitorScreenState extends State<MonitorScreen> {
 
   Future<void> _stopVideoStream() async {
     if (_webrtcService == null) return;
-    
+
     setState(() => _videoLoading = true);
-    
+
     try {
       await _webrtcService!.stopStream();
       if (mounted) {
@@ -165,20 +164,24 @@ class _MonitorScreenState extends State<MonitorScreen> {
       length: 3,
       child: Column(
         children: [
-          const TabBar(tabs: [
-            Tab(text: '实时'),
-            Tab(text: '提醒'),
-            Tab(text: '视频'),
-          ]),
+          const TabBar(
+            tabs: [
+              Tab(text: '实时'),
+              Tab(text: '提醒'),
+              Tab(text: '视频'),
+            ],
+          ),
           Expanded(
-            child: TabBarView(children: [
-              // 实时监控标签页
-              _buildRealtimeTab(),
-              _buildReminderTab(),
-              // 视频直播标签页
-              _buildVideoTab(),
-            ]),
-          )
+            child: TabBarView(
+              children: [
+                // 实时监控标签页
+                _buildRealtimeTab(),
+                _buildReminderTab(),
+                // 视频直播标签页
+                _buildVideoTab(),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -200,7 +203,10 @@ class _MonitorScreenState extends State<MonitorScreen> {
                   children: [
                     const Text(
                       '快速提醒',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     const Text('一键创建5分钟后的临时提醒'),
@@ -289,8 +295,10 @@ class _MonitorScreenState extends State<MonitorScreen> {
                         showTitles: true,
                         interval: 3,
                         getTitlesWidget: (value, meta) {
-                          return Text('${value.toInt()}点',
-                              style: const TextStyle(fontSize: 10));
+                          return Text(
+                            '${value.toInt()}点',
+                            style: const TextStyle(fontSize: 10),
+                          );
                         },
                       ),
                     ),
@@ -298,8 +306,10 @@ class _MonitorScreenState extends State<MonitorScreen> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         getTitlesWidget: (value, meta) {
-                          return Text('${value.toInt()}',
-                              style: const TextStyle(fontSize: 10));
+                          return Text(
+                            '${value.toInt()}',
+                            style: const TextStyle(fontSize: 10),
+                          );
                         },
                       ),
                     ),
@@ -308,7 +318,8 @@ class _MonitorScreenState extends State<MonitorScreen> {
                   minX: 0,
                   maxX: 23,
                   minY: 0,
-                  maxY: (hourly.isNotEmpty
+                  maxY:
+                      (hourly.isNotEmpty
                           ? hourly.reduce((a, b) => a > b ? a : b).toDouble()
                           : 10) +
                       5,
@@ -367,8 +378,6 @@ class _MonitorScreenState extends State<MonitorScreen> {
     final timestamp = _companionStatus!['timestamp'] ?? '';
     final hasLocation = _dogLocation != null;
     final locationName = _dogLocation?['location_name']?.toString() ?? '未知位置';
-    final lat = _dogLocation?['lat']?.toString() ?? '';
-    final lon = _dogLocation?['lon']?.toString() ?? '';
 
     return Card(
       child: Padding(
@@ -422,11 +431,6 @@ class _MonitorScreenState extends State<MonitorScreen> {
               ),
               const SizedBox(height: 8),
               Text('位置: $locationName', style: const TextStyle(fontSize: 14)),
-              if (lat.isNotEmpty && lon.isNotEmpty)
-                Text(
-                  '坐标: $lat, $lon',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
             ],
           ],
         ),
@@ -524,7 +528,7 @@ class _MonitorScreenState extends State<MonitorScreen> {
         ),
       );
     }
-    
+
     return RTCVideoView(
       _remoteRenderer!,
       objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
@@ -547,7 +551,10 @@ class _MonitorScreenState extends State<MonitorScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: _videoLoading || _isStreaming || _selectedVideoFilename == null
+                    onPressed:
+                        _videoLoading ||
+                            _isStreaming ||
+                            _selectedVideoFilename == null
                         ? null
                         : _startVideoStream,
                     icon: const Icon(Icons.play_arrow),
@@ -557,7 +564,9 @@ class _MonitorScreenState extends State<MonitorScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: _videoLoading || !_isStreaming ? null : _stopVideoStream,
+                    onPressed: _videoLoading || !_isStreaming
+                        ? null
+                        : _stopVideoStream,
                     icon: const Icon(Icons.stop),
                     label: const Text('停止直播'),
                     style: ElevatedButton.styleFrom(
@@ -597,15 +606,16 @@ class _MonitorScreenState extends State<MonitorScreen> {
 
   Future<void> _quickRemind() async {
     final now = DateTime.now().add(const Duration(minutes: 5));
-    final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final timeStr =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     final ok = await Api.upsertSchedule({
       'time': timeStr,
       'event': '临时提醒',
       'completed': false,
     });
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ok ? '已创建5分钟后的提醒' : '提醒创建失败')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(ok ? '已创建5分钟后的提醒' : '提醒创建失败')));
   }
 }

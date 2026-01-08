@@ -138,7 +138,7 @@ class _AuthScreenState extends State<AuthScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('家属端登录/注册'),
+        title: const Text('欢迎'),
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -273,11 +273,7 @@ class _AuthScreenState extends State<AuthScreen> {
               label: Text(_isLogin ? '登录' : '注册'),
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
             ),
-            const SizedBox(height: 8),
-            Text(
-              '提示：账号密码会发送至后端并以明文保存在本地文件，仅用于演示。',
-              style: theme.textTheme.bodySmall,
-            ),
+            
             if (_isLogin) ...[
               const SizedBox(height: 24),
               const Row(children: [

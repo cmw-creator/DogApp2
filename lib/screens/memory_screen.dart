@@ -388,7 +388,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                 maxLines: isTimeline ? 3 : 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (displayTags.isNotEmpty) ...[
+              if (isTimeline && displayTags.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
