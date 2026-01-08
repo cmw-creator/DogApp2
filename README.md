@@ -1,6 +1,7 @@
-# Flutter开发环境配置
+# 开发环境配置
 
 * 安装前注意：很多包国内环境不好下载，可能开全局梯子或者要配置一些镜像
+* 服务器默认20.89.159.15:8080(web rtc 8081)，1月里一直开着
 
 ## 1 Flutter手动安装：
 
@@ -25,7 +26,6 @@ dart --version
  ```
 
    
-
 ## 2 java环境(可选)
 
 - 在edge浏览器里打开不需要，打包成apk需要
@@ -50,7 +50,7 @@ java --version
 
 ~~此外，你还可以考虑安装一些提升效率的辅助插件，如 `Awesome Flutter Snippets`（代码片段）和 `Error Lens`（增强错误提示）。~~
 
-尤其推荐使用安装**trae**插件或使用**copilot**。 [trae官网](https://www.trae.cn/)  [github copilot](https://blog.csdn.net/PGJ_168/article/details/150267222)
+推荐使用安装**trae**插件或使用**copilot**。 [trae官网](https://www.trae.cn/)  [github copilot](https://blog.csdn.net/PGJ_168/article/details/150267222)
 
 ### 插件验证
 
@@ -96,3 +96,62 @@ java --version
 flutter build apk --release
 ```
 ## 6 常见问题
+ 
+# 项目介绍
+### 简介
+
+`DogApp2` 是一个基于 Flutter 的移动/跨平台客户端，与轻量级 Python 服务端配合的宠物管理与远程视频交互应用。项目集成了本地媒体管理、提醒、家庭/成员管理以及基于 WebRTC 的实时视频通话功能（客户端使用 Flutter，后端使用 Python 提供测试/开发服务）。
+
+### 关键功能
+- 多端运行：支持 Android、iOS、Web（通过 Flutter）
+- 本地媒体管理：照片、视频、活动记录等
+- 家庭和陪伴者管理：家庭成员、陪伴者状态同步
+- 提醒和日程：本地提醒记录与管理
+- 实时视频/音频：使用 WebRTC 建立点对点或通过信令服务器协商的连接
+
+### 架构与技术栈
+- 前端：`Flutter`（Dart）
+- 后端（开发/测试）：`Python`（位于 `dog/` 目录下的 `dog_server.py` 与 `webrtc_server.py`）
+- 媒体与本地数据：项目内 `assets/` 和 `uploads/` 目录用于存放演示或测试数据
+
+### 项目结构（简要）
+- `lib/`：Flutter 应用源码，入口 `main.dart`，以及 `screens/`、`services/` 等子模块
+- `dog/`：用于本地开发的 Python 服务与演示脚本（例如：`dog_server.py`, `webrtc_server.py`）
+- `assets/`：应用使用的静态资源（视频、图片）
+- `android/`, `ios/`, `web/`, `windows/`, `macos/`, `linux/`：平台相关工程文件
+
+### 快速启动（开发）
+
+1. 准备 Flutter 环境（见上文第 1 节）并在项目根目录运行：
+
+```
+flutter pub get
+flutter run
+```
+
+2. 启动后端（可选本地后端）：
+
+```
+python dog/dog_server.py
+```
+
+3. 在 IDE 中选择目标设备（模拟器、真机或浏览器）并运行。若需要 WebRTC 功能，请确保网络访问和信令服务器地址配置正确（默认服务器：`20.89.159.15:8080`，WebRTC 端口通常为 `8081`）。
+
+### 打包发布
+
+生成 Android release apk：
+
+```
+flutter build apk --release
+```
+
+如果需要针对 iOS 或其他平台打包，请参照 Flutter 官方文档并在相应平台上准备签名证书与配置。
+
+### 调试与日志
+- Flutter 层：使用 `flutter run -d <device>` 并观察控制台日志
+- Python 服务：直接运行脚本，输出会在终端展示；必要时可加上日志记录或调试断点
+
+### 贡献与联系方式
+欢迎贡献改进、Issue 报告或功能建议。可直接在仓库中发起 Pull Request 或 Issue，或联系仓库维护者获取更多信息。
+
+
