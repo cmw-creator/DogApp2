@@ -96,7 +96,9 @@ class _HelpScreenState extends State<HelpScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return RefreshIndicator(
       onRefresh: () => loadFamilyInfo(),
       child: SingleChildScrollView(
@@ -110,14 +112,19 @@ class _HelpScreenState extends State<HelpScreen> {
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: Colors.red.shade400, width: 2),
+                side: BorderSide(
+                  color: isDark ? Colors.red.shade300 : Colors.red.shade400,
+                  width: 2,
+                ),
               ),
               child: InkWell(
                 onTap: _loading ? null : triggerSOS,
                 child: Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
-                    color: Colors.red.shade50,
+                    color: isDark
+                        ? const Color(0xFF2A0F12)
+                        : Colors.red.shade50,
                   ),
                   padding: const EdgeInsets.all(24),
                   child: Column(
@@ -127,12 +134,18 @@ class _HelpScreenState extends State<HelpScreen> {
                       else
                         Column(
                           children: [
-                            Icon(Icons.emergency, size: 64, color: Colors.red.shade700),
+                            Icon(
+                              Icons.emergency,
+                              size: 64,
+                              color: Colors.red.shade700,
+                            ),
                             const SizedBox(height: 12),
                             Text(
                               '紧急求助',
                               style: theme.textTheme.headlineSmall?.copyWith(
-                                color: Colors.red.shade900,
+                                color: isDark
+                                    ? Colors.red.shade200
+                                    : Colors.red.shade900,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -140,7 +153,9 @@ class _HelpScreenState extends State<HelpScreen> {
                             Text(
                               '长按或点击发送紧急信号',
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: Colors.red.shade700,
+                                color: isDark
+                                    ? Colors.red.shade200
+                                    : Colors.red.shade700,
                               ),
                             ),
                           ],
@@ -156,20 +171,20 @@ class _HelpScreenState extends State<HelpScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.amber.shade50,
-                border: Border.all(color: Colors.amber.shade300, width: 1),
+                color: scheme.surfaceContainerHighest,
+                border: Border.all(color: theme.dividerColor, width: 1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info, color: Colors.amber.shade700, size: 20),
+                  Icon(Icons.info, color: scheme.primary, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '遇到紧急情况时，点击上方按钮发送求助信号，家属将收到您的位置和紧急信息。',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.amber.shade900,
+                        color: scheme.onSurface,
                       ),
                     ),
                   ),
@@ -183,7 +198,7 @@ class _HelpScreenState extends State<HelpScreen> {
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey.shade200, width: 1),
+                side: BorderSide(color: theme.dividerColor, width: 1),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -192,11 +207,13 @@ class _HelpScreenState extends State<HelpScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.location_on, color: Colors.blue.shade700),
+                        Icon(Icons.location_on, color: scheme.primary),
                         const SizedBox(width: 8),
                         Text(
                           '当前位置',
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
                     ),
@@ -204,7 +221,7 @@ class _HelpScreenState extends State<HelpScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
+                        color: scheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Column(
@@ -212,15 +229,21 @@ class _HelpScreenState extends State<HelpScreen> {
                         children: [
                           Text(
                             currentLocation,
-                            style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                           const SizedBox(height: 8),
-                          ElevatedButton.icon(
-                            onPressed: showLocationDialog,
-                            icon: const Icon(Icons.volume_up, size: 18),
-                            label: const Text('播报位置'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue.shade700,
+                          Center(
+                            child: ElevatedButton.icon(
+                              onPressed: showLocationDialog,
+                              icon: const Icon(Icons.volume_up, size: 18),
+                              label: const Text('播报位置'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: scheme.primary,
+                                foregroundColor: scheme.onPrimary,
+                              ),
                             ),
                           ),
                         ],
@@ -237,7 +260,7 @@ class _HelpScreenState extends State<HelpScreen> {
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey.shade200, width: 1),
+                side: BorderSide(color: theme.dividerColor, width: 1),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -246,11 +269,13 @@ class _HelpScreenState extends State<HelpScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.home, color: Colors.green.shade700),
+                        Icon(Icons.home, color: scheme.secondary),
                         const SizedBox(width: 8),
                         Text(
                           '回家导航',
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
                     ),
@@ -258,7 +283,7 @@ class _HelpScreenState extends State<HelpScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.green.shade50,
+                        color: scheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Column(
@@ -266,15 +291,21 @@ class _HelpScreenState extends State<HelpScreen> {
                         children: [
                           Text(
                             homeAddress,
-                            style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                           const SizedBox(height: 8),
-                          ElevatedButton.icon(
-                            onPressed: showNavigateDialog,
-                            icon: const Icon(Icons.directions, size: 18),
-                            label: const Text('启动导航'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green.shade700,
+                          Center(
+                            child: ElevatedButton.icon(
+                              onPressed: showNavigateDialog,
+                              icon: const Icon(Icons.directions, size: 18),
+                              label: const Text('启动导航'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: scheme.secondary,
+                                foregroundColor: scheme.onSecondary,
+                              ),
                             ),
                           ),
                         ],

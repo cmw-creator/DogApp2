@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'health_data.dart';
 
@@ -13,9 +14,15 @@ class LocalStore {
   static const _kBoundPatientByAccount = 'bound_patient_by_account';
   static const _kApiUrl = 'api_url';
   static const _kDevMode = 'dev_mode';
+  static const _kFontScale = 'font_scale';
+  static const _kFamilyMemberPhotos = 'family_member_photos';
 
   static const _kFixedPatientCode = 'PAT-TEST-001';
   static const _kFixedBindCode = 'BIND-TEST-20260103';
+
+  static const double _defaultFontScale = 1.15;
+  static final ValueNotifier<double> fontScaleNotifier =
+      ValueNotifier<double>(_defaultFontScale);
   
   // 健康数据
   static const _kHealthMetrics = 'health_metrics'; // JSON列表
@@ -25,6 +32,10 @@ class LocalStore {
   static Future<void> init() async {
     _prefs ??= await SharedPreferences.getInstance();
     _ensureCodes();
+    // 初始化字体缩放
+    final storedScale = _prefs!.getDouble(_kFontScale) ?? _defaultFontScale;
+    _prefs!.setDouble(_kFontScale, storedScale);
+    fontScaleNotifier.value = storedScale;
   }
 
   static void _ensureCodes() {
@@ -246,9 +257,53 @@ class LocalStore {
     return ((taken / intakes.length) * 100).toInt();
   }
 
-  static String get apiUrl => _prefs?.getString(_kApiUrl) ?? 'http://127.0.0.1:5000';
+  static String get apiUrl => _prefs?.getString(_kApiUrl) ?? 'http://20.89.159.15:8080';
   static set apiUrl(String value) => _prefs?.setString(_kApiUrl, value);
 
   static bool get devMode => _prefs?.getBool(_kDevMode) ?? false;
   static set devMode(bool value) => _prefs?.setBool(_kDevMode, value);
+
+  static double get fontScale => _prefs?.getDouble(_kFontScale) ?? _defaultFontScale;
+  static set fontScale(double value) {
+    final v = value.clamp(0.9, 1.5).toDouble();
+    _prefs?.setDouble(_kFontScale, v);
+    fontScaleNotifier.value = v;
+  }
+
+  static Map<String, String> _getFamilyMemberPhotoMap() {
+    if (_prefs == null) return {};
+    final raw = _prefs!.getString(_kFamilyMemberPhotos);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return decoded.map((k, v) => MapEntry(k.toString(), v.toString()));
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  static Future<void> _saveFamilyMemberPhotoMap(Map<String, String> map) async {
+    if (_prefs == null) return;
+    await _prefs!.setString(_kFamilyMemberPhotos, jsonEncode(map));
+  }
+
+  static String? getFamilyMemberPhotoPath(String memberId) {
+    if (memberId.isEmpty) return null;
+    final map = _getFamilyMemberPhotoMap();
+    final v = map[memberId];
+    if (v == null || v.trim().isEmpty) return null;
+    return v;
+  }
+
+  static Future<void> setFamilyMemberPhotoPath({required String memberId, required String filePath}) async {
+    if (memberId.isEmpty) return;
+    final map = _getFamilyMemberPhotoMap();
+    if (filePath.trim().isEmpty) {
+      map.remove(memberId);
+    } else {
+      map[memberId] = filePath.trim();
+    }
+    await _saveFamilyMemberPhotoMap(map);
+  }
 }

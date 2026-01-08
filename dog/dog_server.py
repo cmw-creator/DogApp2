@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, stream_with_context, Response, abort
+from flask import Flask, request, jsonify, send_from_directory, send_file, stream_with_context, Response, abort
 from flask_cors import CORS
 import threading
 import time
@@ -641,8 +641,18 @@ class DogServer:
                 safe_path = os.path.normpath(filename)
                 if safe_path.startswith('..'):
                     return abort(400)
-                return send_from_directory(self.app.config['ASSETS_FOLDER'], safe_path)
+
+                # 目标绝对路径
+                abs_path = os.path.join(self.app.config['ASSETS_FOLDER'], safe_path)
+                if not os.path.isfile(abs_path):
+                    logger.warning(
+                        f"资产未找到: {abs_path} (request: {filename})"
+                    )
+                    return jsonify({'message': '资源未找到'}), 404
+
+                return send_file(abs_path)
             except FileNotFoundError:
+                logger.warning(f"资产访问失败: {filename}")
                 return jsonify({'message': '资源未找到'}), 404
         
         # GPS数据上传路由
@@ -717,20 +727,27 @@ class DogServer:
                     return jsonify({'message': '未接收到有效数据'}), 400
                 
                 face_id = data.get('face_id')
+                name = data.get('name', '')
                 description = data.get('description', '')
                 audio_file = data.get('audio_file', '')
+                image_file = data.get('image_file', '')
                 
                 if not face_id:
                     return jsonify({'message': '缺少face_id字段'}), 400
+                if not face_id.startswith('face_'):
+                    face_id = f"face_{face_id}"
                 
                 # 加载现有数据
                 face_info = self.load_assets_json('face_info.json')
+                existing = face_info.get(face_id, {})
                 
-                # 更新或添加
+                # 更新或添加（保留已有的图片/音频信息，如果未传入则不覆盖）
                 face_info[face_id] = {
+                    'name': name or existing.get('name', ''),
                     'description': description,
                     'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'audio_file': audio_file
+                    'audio_file': audio_file if audio_file != '' else existing.get('audio_file', ''),
+                    'image_file': image_file if image_file != '' else existing.get('image_file', ''),
                 }
                 
                 if self.save_assets_json(face_info, 'face_info.json'):
@@ -752,6 +769,8 @@ class DogServer:
                 
                 if not face_id:
                     return jsonify({'message': '缺少face_id字段'}), 400
+                if not face_id.startswith('face_'):
+                    face_id = f"face_{face_id}"
                 
                 face_info = self.load_assets_json('face_info.json')
                 if face_id in face_info:
@@ -798,12 +817,26 @@ class DogServer:
                     filename = f"{face_id}{ext}"
                     save_path = os.path.join(face_dir, filename)
                     file.save(save_path)
+
+                    # 写回 face_info.json 的 image_file 字段，便于前端显示
+                    try:
+                        face_info = self.load_assets_json('face_info.json')
+                        existing = face_info.get(face_id, {})
+                        existing['image_file'] = f"face_detector/known_faces/{filename}"
+                        existing.setdefault('description', '')
+                        existing.setdefault('audio_file', '')
+                        existing['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        face_info[face_id] = existing
+                        self.save_assets_json(face_info, 'face_info.json')
+                    except Exception as e:
+                        logger.error(f"上传后写入face_info失败: {e}")
                     
                     logger.info(f"[{datetime.now()}] 人脸照片已保存: {save_path}")
                     return jsonify({
                         'message': '人脸照片上传成功!',
                         'face_id': face_id,
-                        'file_path': filename
+                        'file_path': filename,
+                        'asset_path': f"face_detector/known_faces/{filename}",
                     }), 200
                 else:
                     return jsonify({'message': '不支持的文件类型'}), 400
@@ -1107,8 +1140,6 @@ class DogServer:
                 logger.info(f"[notifications] subscribers={len(self.notification_subscribers)}")
 
             def gen():
-                # 首次推送一条hello保持兼容
-                yield f"data: {json.dumps({'type': 'hello', 'client_id': client_id}, ensure_ascii=False)}\n\n"
                 try:
                     while True:
                         try:
@@ -1116,9 +1147,9 @@ class DogServer:
                             logger.info(f"[notifications] deliver to={client_id} type={item.get('type')} id={item.get('id')}")
                             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                         except Exception:
-                            # 心跳，保持连接
-                            logger.debug(f"[notifications] ping to={client_id}")
-                            yield 'data: {"type":"ping"}\n\n'
+                            # 心跳，保持连接（使用SSE注释，避免触发客户端通知）
+                            logger.debug(f"[notifications] keepalive to={client_id}")
+                            yield ': keepalive\n\n'
                 finally:
                     with self.notification_lock:
                         if self.notification_subscribers.get(client_id) is q:
@@ -1749,7 +1780,7 @@ class DogServer:
 
 
     
-    def run_server(self, port=5000):
+    def run_server(self, port=8080):
         """运行Flask服务器"""
         print("启动机器狗控制服务器...")
         print(f"上传目录: {os.path.abspath(self.app.config['UPLOAD_FOLDER'])}")
@@ -1758,7 +1789,7 @@ class DogServer:
         # 使用多线程模式运行
         self.app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
     
-    def start(self, port=5000):
+    def start(self, port=8080):
         """启动服务器线程"""
         server_thread = threading.Thread(target=self.run_server, kwargs={'port': port})
         server_thread.daemon = True

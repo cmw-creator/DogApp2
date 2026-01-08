@@ -165,6 +165,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     
     return RefreshIndicator(
       onRefresh: _loadMemories,
@@ -178,7 +179,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                 children: [
                   Icon(
                     Icons.photo_library,
-                    color: Colors.lightBlue.shade700,
+                    color: scheme.primary,
                     size: 28,
                   ),
                   const SizedBox(width: 12),
@@ -190,13 +191,13 @@ class _MemoryScreenState extends State<MemoryScreen> {
                           '家庭回忆',
                           style: theme.textTheme.headlineSmall?.copyWith(
                             fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade900,
+                            color: scheme.onSurface,
                           ),
                         ),
                         Text(
                           '珍藏的美好时光',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.blue.shade700,
+                            color: scheme.onSurfaceVariant,
                           ),
                         ),
                       ],
@@ -206,7 +207,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                   IconButton(
                     icon: Icon(
                       _viewMode == 'grid' ? Icons.view_list : Icons.grid_view,
-                      color: Colors.lightBlue.shade700,
+                      color: scheme.primary,
                     ),
                     onPressed: () {
                       setState(() {
@@ -286,6 +287,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
   }
 
   Widget _buildEmptyState(ThemeData theme) {
+    final scheme = theme.colorScheme;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -293,13 +295,13 @@ class _MemoryScreenState extends State<MemoryScreen> {
           Icon(
             Icons.photo_library_outlined,
             size: 80,
-            color: Colors.lightBlue.shade200,
+            color: scheme.onSurface.withOpacity(0.35),
           ),
           const SizedBox(height: 24),
           Text(
             '还没有回忆',
             style: theme.textTheme.titleLarge?.copyWith(
-              color: Colors.blue.shade700,
+              color: scheme.onSurface,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -307,7 +309,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
           Text(
             '美好的回忆会在这里展示',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.blue.shade600,
+              color: scheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -316,17 +318,18 @@ class _MemoryScreenState extends State<MemoryScreen> {
   }
 
   Widget _buildDateHeader(String date, ThemeData theme) {
+    final scheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.lightBlue.shade50,
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.lightBlue.shade200),
+        border: Border.all(color: theme.dividerColor),
       ),
       child: Text(
         _formatDate(date),
         style: theme.textTheme.titleSmall?.copyWith(
-          color: Colors.blue.shade800,
+          color: scheme.onSurface,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -334,6 +337,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
   }
 
   Widget _buildMemoryCard(Map<String, dynamic> memory, ThemeData theme, {bool isTimeline = false}) {
+    final scheme = theme.colorScheme;
     final imageUrl = memory['image_url']?.toString() ?? '';
     final tags = _toStringList(memory['tags']);
     final displayTags = tags.length > 3 ? tags.sublist(0, 3) : tags;
@@ -343,7 +347,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200, width: 1),
+        side: BorderSide(color: theme.dividerColor, width: 1),
       ),
       child: InkWell(
         onTap: () => _showMemoryDetail(memory, theme),
@@ -352,7 +356,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: Colors.white,
+            color: scheme.surface,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -369,7 +373,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                 memory['title'] ?? '美好回忆',
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: Colors.blue.shade900,
+                  color: scheme.onSurface,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -379,12 +383,12 @@ class _MemoryScreenState extends State<MemoryScreen> {
               Text(
                 memory['description'] ?? '',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.blue.shade700,
+                  color: scheme.onSurfaceVariant,
                 ),
                 maxLines: isTimeline ? 3 : 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (displayTags.isNotEmpty) ...[
+              if (isTimeline && displayTags.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
@@ -392,7 +396,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                   children: displayTags
                       .map((t) => Chip(
                             label: Text(t, style: const TextStyle(fontSize: 11)),
-                            backgroundColor: Colors.lightBlue.shade50,
+                            backgroundColor: scheme.surfaceContainerHighest,
                             padding: const EdgeInsets.symmetric(horizontal: 6),
                           ))
                       .toList(),
@@ -405,13 +409,13 @@ class _MemoryScreenState extends State<MemoryScreen> {
                   Icon(
                     Icons.calendar_today,
                     size: 14,
-                    color: Colors.blue.shade600,
+                    color: scheme.onSurfaceVariant,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     _formatDate(memory['date']?.toString()),
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.blue.shade600,
+                      color: scheme.onSurfaceVariant,
                       fontSize: 12,
                     ),
                   ),
@@ -425,6 +429,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
   }
 
   void _showMemoryDetail(Map<String, dynamic> memory, ThemeData theme) {
+    final scheme = theme.colorScheme;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -451,13 +456,13 @@ class _MemoryScreenState extends State<MemoryScreen> {
                   Icon(
                     Icons.calendar_today,
                     size: 16,
-                    color: Colors.blue.shade600,
+                    color: scheme.onSurfaceVariant,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     _formatDate(memory['date']?.toString()),
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: Colors.blue.shade700,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -471,7 +476,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Icon(Icons.place, size: 18, color: Colors.blue.shade600),
+                    Icon(Icons.place, size: 18, color: scheme.onSurfaceVariant),
                     const SizedBox(width: 6),
                     Text(memory['location'].toString()),
                   ],
@@ -498,7 +503,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                   children: _toStringList(memory['tags'])
                       .map((t) => Chip(
                             label: Text('#$t'),
-                            backgroundColor: Colors.lightBlue.shade50,
+                            backgroundColor: scheme.surfaceContainerHighest,
                           ))
                       .toList(),
                 ),
@@ -520,20 +525,24 @@ class _MemoryScreenState extends State<MemoryScreen> {
     return Container(
       height: height,
       width: double.infinity,
-      color: Colors.lightBlue.shade50,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: url != null && url.isNotEmpty
           ? Image.network(
               url,
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => Center(
-                child: Icon(Icons.broken_image, size: 48, color: Colors.blue.shade200),
+                child: Icon(
+                  Icons.broken_image,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.35),
+                ),
               ),
             )
           : Center(
               child: Icon(
                 Icons.photo,
                 size: 64,
-                color: Colors.lightBlue.shade300,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.35),
               ),
             ),
     );

@@ -84,37 +84,109 @@ void stopTestBackend() {
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({Key? key}) : super(key: key);
 
-  // 简单主题与入口
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '机器狗 Flutter 迁移示例',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-        scaffoldBackgroundColor: Colors.white,
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade200, width: 1),
-          ),
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  ThemeMode _themeMode = ThemeMode.light;
+
+  void _toggleTheme() {
+    setState(() {
+      _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+    });
+  }
+
+  ThemeData _buildLightTheme() {
+    return ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
+      useMaterial3: true,
+      scaffoldBackgroundColor: Colors.grey.shade100,
+      cardTheme: CardThemeData(
+        color: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.grey.shade200, width: 1),
         ),
       ),
-      home: const RootPage(),
-      builder: (context, child) {
-        return InAppNotificationOverlay(child: child ?? const SizedBox.shrink());
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0,
+      ),
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: Colors.white,
+      ),
+    );
+  }
+
+  ThemeData _buildDarkTheme() {
+    return ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.blueGrey,
+        brightness: Brightness.dark,
+      ),
+      useMaterial3: true,
+      scaffoldBackgroundColor: const Color(0xFF121212),
+      cardTheme: CardThemeData(
+        color: const Color(0xFF1E1E1E),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.grey.shade800, width: 1),
+        ),
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFF1E1E1E),
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: Color(0xFF1E1E1E),
+        unselectedItemColor: Colors.white70,
+        selectedItemColor: Colors.white,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double>(
+      valueListenable: LocalStore.fontScaleNotifier,
+      builder: (context, fontScale, _) {
+        return MaterialApp(
+          title: '机器狗',
+          theme: _buildLightTheme(),
+          darkTheme: _buildDarkTheme(),
+          themeMode: _themeMode,
+          home: RootPage(
+            onToggleTheme: _toggleTheme,
+            themeMode: _themeMode,
+          ),
+          builder: (context, child) {
+            final media = MediaQuery.of(context);
+            final scaled = MediaQuery(
+              data: media.copyWith(textScaleFactor: fontScale),
+              child: child ?? const SizedBox.shrink(),
+            );
+            return InAppNotificationOverlay(child: scaled);
+          },
+          debugShowCheckedModeBanner: false,
+        );
       },
-      debugShowCheckedModeBanner: false,
     );
   }
 }
 
 class RootPage extends StatefulWidget {
-  const RootPage({Key? key}) : super(key: key);
+  const RootPage({Key? key, required this.onToggleTheme, required this.themeMode}) : super(key: key);
+
+  final VoidCallback onToggleTheme;
+  final ThemeMode themeMode;
 
   @override
   State<RootPage> createState() => _RootPageState();
@@ -122,7 +194,7 @@ class RootPage extends StatefulWidget {
 
 class _RootPageState extends State<RootPage> {
   static const bool _bindingGateEnabled = true; // 需要时可改为 false 关闭绑定强制
-  static const bool _showBindTutorialOnLogin = true; // 需要时可改为 false 关闭弹窗教程
+  static const bool _showBindTutorialOnLogin = false; // 需要时可改为 false 关闭弹窗教程
   static const bool _showBindPromptOnLogin = true; // 登录后直接弹出绑定输入
 
   // 模拟用户类型：'family' 或 'patient'
@@ -143,7 +215,7 @@ class _RootPageState extends State<RootPage> {
   final TextEditingController _bindCodeCtrl = TextEditingController();
 
   // 服务器地址可在 Settings 页面修改（这里是内存保存示例）
-  String serverUrl = 'http://127.0.0.1:5000';
+  String serverUrl = 'http://20.89.159.15:8080';
 
   @override
   void initState() {
@@ -422,8 +494,13 @@ class _RootPageState extends State<RootPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(userType == 'patient' ? '患者端' : '家属端'),
+        title: Text(userType == 'patient' ? '您好，张先生' : '您好，张女士'),
         actions: [
+          IconButton(
+            icon: Icon(widget.themeMode == ThemeMode.dark ? Icons.dark_mode : Icons.light_mode),
+            onPressed: widget.onToggleTheme,
+            tooltip: widget.themeMode == ThemeMode.dark ? '切换到亮色' : '切换到暗色',
+          ),
           IconButton(
             icon: const Icon(Icons.notifications),
             onPressed: () {

@@ -39,6 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _bindCodeController;
   bool _binding = false;
   String? _bindMessage;
+  late double _fontScale;
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _serverController = TextEditingController(text: widget.initialServerUrl ?? Api.serverUrl);
     _patientCodeController = TextEditingController();
     _bindCodeController = TextEditingController();
+    _fontScale = LocalStore.fontScale;
   }
 
   Future<void> _bindPatient() async {
@@ -104,6 +106,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(children: [
         if (widget.userType == SettingsUserType.patient)
           _buildPatientCodesCard(),
+        if (widget.userType == SettingsUserType.patient)
+          _buildFontScaleCard(),
         if (widget.userType == SettingsUserType.family)
           _buildBindCard(),
         if (widget.userType == SettingsUserType.family)
@@ -155,35 +159,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                _buildTestNotificationButton(),
               ],
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.notifications_active),
-                label: const Text('测试通知'),
-                onPressed: () async {
-                  final from =
-                      widget.userType == SettingsUserType.patient ? 'patient' : 'family';
-                  final receipt = await Api.publishNotificationWithReceipt(
-                    message: '这是一条测试通知',
-                    type: 'test',
-                    from: from,
-                    // 注意：这里不要默认广播给所有人。
-                    // 若需要精确指定对方 clientId，可后续在 UI 增加输入/选择。
-                    to: 'peer',
-                    payload: {'from': from},
-                  );
-                  final ok = receipt != null;
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(ok
-                            ? '已发送（可送达=${receipt?['delivered_possible']}）'
-                            : '发送失败'),
-                      ),
-                    );
-                  }
-                },
-              ),
+              if (!LocalStore.devMode) ...[
+                const SizedBox(height: 12),
+                _buildTestNotificationButton(),
+              ],
             ]),
           ),
         ),
@@ -193,7 +175,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Card(
           child: ListTile(
             title: Text('应用信息'),
-            subtitle: Text('机器狗APP v2.0.1\n基于Flutter实现'),
+            subtitle: Text('机器狗APP v2.1.0\n基于Flutter实现'),
           ),
         ),
         if (widget.userType == SettingsUserType.family && widget.onLogout != null) ...[
@@ -303,6 +285,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFontScaleCard() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const ListTile(title: Text('字体大小')),
+              Slider(
+                min: 0.9,
+                max: 1.5,
+                divisions: 6,
+                value: _fontScale,
+                label: _fontScale.toStringAsFixed(2),
+                onChanged: (v) {
+                  setState(() {
+                    _fontScale = v;
+                    LocalStore.fontScale = v;
+                  });
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: const [
+                    Text('较小'),
+                    Text('默认'),
+                    Text('较大'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  '默认字体已调大，您可按需调整。',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTestNotificationButton() {
+    return ElevatedButton.icon(
+      icon: const Icon(Icons.notifications_active),
+      label: const Text('测试通知'),
+      onPressed: () async {
+        final from = widget.userType == SettingsUserType.patient ? 'patient' : 'family';
+        final receipt = await Api.publishNotificationWithReceipt(
+          message: '这是一条测试通知',
+          type: 'test',
+          from: from,
+          to: 'peer',
+          payload: {'from': from},
+        );
+        final ok = receipt != null;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content:
+                  Text(ok ? '已发送（可送达=${receipt?['delivered_possible']}）' : '发送失败'),
+            ),
+          );
+        }
+      },
     );
   }
 }

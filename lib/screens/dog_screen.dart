@@ -10,7 +10,6 @@ class DogScreen extends StatefulWidget {
 
 class _DogScreenState extends State<DogScreen> {
   int battery = 75;
-  String location = '正在获取位置信息...';
   List<Map<String, String>> dialogs = [];
   bool online = true;
   bool _loading = false;
@@ -25,8 +24,6 @@ class _DogScreenState extends State<DogScreen> {
         setState(() {
           online = true;
           battery = (data['battery']?['level'] as int?) ?? battery;
-          final loc = data['location'];
-          location = loc != null ? loc.toString() : location;
           final dialogHistory = data['dialog_history'] as List<dynamic>?;
           if (dialogHistory != null) {
             dialogs = dialogHistory.map((e) {
@@ -105,6 +102,7 @@ class _DogScreenState extends State<DogScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     
     return RefreshIndicator(
       onRefresh: refreshStatus,
@@ -127,7 +125,7 @@ class _DogScreenState extends State<DogScreen> {
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  color: Colors.white,
+                  color: scheme.surface,
                 ),
                 padding: const EdgeInsets.all(20),
                 child: Row(
@@ -154,7 +152,7 @@ class _DogScreenState extends State<DogScreen> {
                             '我的小影',
                             style: theme.textTheme.headlineSmall?.copyWith(
                               fontWeight: FontWeight.bold,
-                              color: Colors.blue.shade900,
+                              color: scheme.onSurface,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -202,7 +200,7 @@ class _DogScreenState extends State<DogScreen> {
                       child: LinearProgressIndicator(
                         value: battery / 100,
                         minHeight: 8,
-                        backgroundColor: Colors.grey.shade300,
+                        backgroundColor: theme.dividerColor,
                         valueColor: AlwaysStoppedAnimation<Color>(
                           battery > 50 ? Colors.green : (battery > 20 ? Colors.orange : Colors.red),
                         ),
@@ -211,40 +209,9 @@ class _DogScreenState extends State<DogScreen> {
                     const SizedBox(height: 8),
                     Text(
                       '$battery%  ·  剩余约${((battery / 100 * 3).toStringAsFixed(1))}小时',
-                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // 位置卡片
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey.shade200, width: 1),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.location_on, color: Colors.blue.shade700),
-                        const SizedBox(width: 8),
-                        Text(
-                          '当前位置',
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      location,
-                      style: theme.textTheme.bodyLarge?.copyWith(color: Colors.grey.shade800),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.textTheme.bodySmall?.color,
+                      ),
                     ),
                   ],
                 ),
@@ -303,8 +270,8 @@ class _DogScreenState extends State<DogScreen> {
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
                               color: d['type'] == 'command'
-                                  ? Colors.blue.shade50
-                                  : Colors.grey.shade50,
+                                  ? scheme.primary.withOpacity(0.10)
+                                  : scheme.surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Column(
@@ -315,8 +282,8 @@ class _DogScreenState extends State<DogScreen> {
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     fontWeight: FontWeight.bold,
                                     color: d['type'] == 'command'
-                                        ? Colors.blue.shade700
-                                        : Colors.grey.shade700,
+                                        ? scheme.primary
+                                        : scheme.onSurfaceVariant,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -338,16 +305,16 @@ class _DogScreenState extends State<DogScreen> {
             // 命令输入区
             Container(
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                color: scheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
+                border: Border.all(color: theme.dividerColor),
               ),
               padding: const EdgeInsets.all(12),
               child: Column(
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.edit, color: Colors.grey.shade600, size: 20),
+                      Icon(Icons.edit, color: scheme.onSurfaceVariant, size: 20),
                       const SizedBox(width: 8),
                       Expanded(
                         child: TextField(
@@ -355,7 +322,7 @@ class _DogScreenState extends State<DogScreen> {
                           decoration: InputDecoration(
                             hintText: '输入指令或问题...',
                             border: InputBorder.none,
-                            hintStyle: TextStyle(color: Colors.grey.shade500),
+                            hintStyle: TextStyle(color: scheme.onSurfaceVariant),
                           ),
                           maxLines: null,
                         ),
@@ -370,7 +337,9 @@ class _DogScreenState extends State<DogScreen> {
                               },
                         icon: Icon(
                           Icons.send,
-                          color: _loading ? Colors.grey.shade400 : Colors.blue.shade700,
+                          color: _loading
+                              ? scheme.onSurface.withOpacity(0.35)
+                              : scheme.primary,
                         ),
                       ),
                     ],

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../services/local_store.dart';
@@ -27,7 +26,6 @@ class _TodayScreenState extends State<TodayScreen> {
   StreamSubscription<Map<String, dynamic>>? _notifSub;
   String? _importantMessage;
   String? _importantMessageType;
-  HealthMetrics? _todayMetrics;
   List<MedicineIntake> _medicineIntakes = [];
 
   @override
@@ -50,8 +48,8 @@ class _TodayScreenState extends State<TodayScreen> {
 
   void _loadWeather() {
     // 目前用本地模拟；若后端提供天气接口可在此调用 Api.xxx
-    weather = '晴转多云 25°C/18°C';
-    weatherIcon = '☀️';
+    weather = '多云转阴 5°C/0°C';
+    weatherIcon = '☁️';
   }
 
   Future<void> _loadSchedules() async {
@@ -70,11 +68,9 @@ class _TodayScreenState extends State<TodayScreen> {
   Future<void> _loadDayData() async {
     await LocalStore.ensureInit();
     final intakes = LocalStore.getTodayMedicineIntakes();
-    final metrics = LocalStore.getTodayHealthMetrics();
     if (!mounted) return;
     setState(() {
       _medicineIntakes = intakes;
-      _todayMetrics = metrics;
     });
   }
 
@@ -216,9 +212,29 @@ class _TodayScreenState extends State<TodayScreen> {
     _notifSub?.cancel();
     NotificationService.instance.stop();
   }
+
+  Future<void> _toggleScheduleCompleted(
+      Map<String, dynamic> schedule, bool value) async {
+    final payload = {
+      'schedule_id': schedule['id'],
+      'time': schedule['time'],
+      'event': schedule['event'],
+      'completed': value,
+    };
+
+    setState(() {
+      final idx = _schedules.indexWhere((e) => e['id'] == schedule['id']);
+      if (idx != -1) {
+        _schedules[idx]['completed'] = value;
+      }
+    });
+
+    await Api.upsertSchedule(payload);
+  }
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     
     return RefreshIndicator(
       onRefresh: () async {
@@ -241,7 +257,7 @@ class _TodayScreenState extends State<TodayScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  color: Colors.white,
+                  color: scheme.surface,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -257,14 +273,14 @@ class _TodayScreenState extends State<TodayScreen> {
                                 dateStr,
                                 style: theme.textTheme.headlineMedium?.copyWith(
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.blue.shade900,
+                                  color: scheme.onSurface,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 weekdayStr,
                                 style: theme.textTheme.titleLarge?.copyWith(
-                                  color: Colors.blue.shade700,
+                                  color: scheme.onSurfaceVariant,
                                 ),
                               ),
                             ],
@@ -282,7 +298,7 @@ class _TodayScreenState extends State<TodayScreen> {
                             Text(
                               weather,
                               style: theme.textTheme.titleMedium?.copyWith(
-                                color: Colors.blue.shade800,
+                                color: scheme.onSurface,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -291,120 +307,7 @@ class _TodayScreenState extends State<TodayScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Colors.teal.shade50,
-                              Colors.teal.shade100,
-                            ],
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.teal.shade100,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                Icons.favorite,
-                                size: 36,
-                                color: Colors.teal.shade700,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '今日健康',
-                                    style: theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.teal.shade900,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    _todayMetrics != null ? '已记录' : '尚未记录',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: _todayMetrics != null
-                                          ? Colors.green.shade700
-                                          : Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: _showAddHealthDialog,
-                              icon: const Icon(Icons.add),
-                              label: const Text('记录'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.teal.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (_todayMetrics != null) ...[
-                      const SizedBox(height: 16),
-                      Card(
-                        elevation: 1,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '今日数据',
-                                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 12),
-                              if (_todayMetrics!.heartRate != null) ...[
-                                _buildMetricRow('❤️ 心率', '${_todayMetrics!.heartRate} bpm', Colors.red),
-                                const SizedBox(height: 8),
-                              ],
-                              if (_todayMetrics!.bloodPressure != null) ...[
-                                _buildMetricRow('🩸 血压', _todayMetrics!.bloodPressure!, Colors.orange),
-                                const SizedBox(height: 8),
-                              ],
-                              if (_todayMetrics!.temperature != null) ...[
-                                _buildMetricRow(
-                                  '🌡️ 温度',
-                                  '${_todayMetrics!.temperature}°C',
-                                  Colors.orangeAccent,
-                                ),
-                                const SizedBox(height: 8),
-                              ],
-                              if (_todayMetrics!.steps != null) ...[
-                                _buildMetricRow('👟 步数', '${_todayMetrics!.steps} 步', Colors.green),
-                                const SizedBox(height: 8),
-                              ],
-                              if (_todayMetrics!.sleepDuration != null)
-                                _buildMetricRow(
-                                  '😴 睡眠',
-                                  '${_todayMetrics!.sleepDuration} 分钟',
-                                  Colors.indigo,
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -642,184 +545,101 @@ class _TodayScreenState extends State<TodayScreen> {
     super.dispose();
   }
 
-  void _showAddHealthDialog() {
-    final heartRateCtl = TextEditingController();
-    final systolicCtl = TextEditingController();
-    final diastolicCtl = TextEditingController();
-    final tempCtl = TextEditingController();
-    final stepsCtl = TextEditingController();
-    final sleepCtl = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('记录健康数据'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: heartRateCtl,
-                decoration: const InputDecoration(labelText: '心率 (bpm)'),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: systolicCtl,
-                decoration: const InputDecoration(labelText: '收缩压'),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: diastolicCtl,
-                decoration: const InputDecoration(labelText: '舒张压'),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: tempCtl,
-                decoration: const InputDecoration(labelText: '温度 (°C)'),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-              ),
-              TextField(
-                controller: stepsCtl,
-                decoration: const InputDecoration(labelText: '步数'),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: sleepCtl,
-                decoration: const InputDecoration(labelText: '睡眠时长 (分钟)'),
-                keyboardType: TextInputType.number,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          ElevatedButton(
-            onPressed: () async {
-              final bp = diastolicCtl.text.isEmpty || systolicCtl.text.isEmpty
-                  ? null
-                  : '${systolicCtl.text}/${diastolicCtl.text}';
-              final metrics = HealthMetrics(
-                timestamp: DateTime.now(),
-                heartRate: heartRateCtl.text.isEmpty ? null : int.tryParse(heartRateCtl.text),
-                bloodPressure: bp,
-                temperature: tempCtl.text.isEmpty ? null : double.tryParse(tempCtl.text),
-                steps: stepsCtl.text.isEmpty ? null : int.tryParse(stepsCtl.text),
-                sleepDuration: sleepCtl.text.isEmpty ? null : int.tryParse(sleepCtl.text),
-              );
-              await LocalStore.recordHealthMetrics(metrics);
-              if (mounted) {
-                Navigator.pop(ctx);
-                await _loadDayData();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('健康数据已记录')),
-                );
-              }
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetricRow(String label, String value, Color color) {
-    return Row(
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildScheduleItem({
     required Map<String, dynamic> schedule,
     required bool isLast,
     required bool isCompleted,
     required ThemeData theme,
   }) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 时间线
-          Column(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: isCompleted
-                      ? theme.colorScheme.primaryContainer
-                      : theme.colorScheme.secondaryContainer,
-                  shape: BoxShape.circle,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 时间线
+            Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: isCompleted
+                        ? theme.colorScheme.primaryContainer
+                        : theme.colorScheme.secondaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _getScheduleIcon(schedule['event'] ?? ''),
+                    color: isCompleted
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.secondary,
+                    size: 20,
+                  ),
                 ),
-                child: Icon(
-                  _getScheduleIcon(schedule['event'] ?? ''),
-                  color: isCompleted
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.secondary,
-                  size: 20,
-                ),
-              ),
-              if (!isLast)
-                Expanded(
-                  child: Container(
+                if (!isLast)
+                  Container(
+                    height: 36,
                     width: 2,
                     color: theme.colorScheme.outline.withOpacity(0.2),
                   ),
+              ],
+            ),
+            const SizedBox(width: 16),
+            // 内容
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  top: 6,
+                  bottom: isLast ? 12 : 6,
                 ),
-            ],
-          ),
-          const SizedBox(width: 16),
-          // 内容
-          Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(
-                top: 8,
-                bottom: isLast ? 16 : 20,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    schedule['time'] ?? '',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withOpacity(0.6),
-                      fontWeight: FontWeight.w500,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      schedule['time'] ?? '',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withOpacity(0.6),
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    schedule['event'] ?? '',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: isCompleted
-                          ? theme.colorScheme.onSurface.withOpacity(0.5)
-                          : theme.colorScheme.onSurface,
-                      decoration: isCompleted
-                          ? TextDecoration.lineThrough
-                          : null,
-                      fontWeight: FontWeight.w500,
+                    const SizedBox(height: 4),
+                    Text(
+                      schedule['event'] ?? '',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: isCompleted
+                            ? theme.colorScheme.onSurface.withOpacity(0.5)
+                            : theme.colorScheme.onSurface,
+                        decoration: isCompleted
+                            ? TextDecoration.lineThrough
+                            : null,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                ],
+                    Row(
+                      children: [
+                        const Spacer(),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('已完成'),
+                            Checkbox(
+                              value: isCompleted,
+                              onChanged: (value) {
+                                if (value == null) return;
+                                _toggleScheduleCompleted(schedule, value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
