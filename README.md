@@ -53,5 +53,5 @@ lib/
 - [RememberDog](https://github.com/cmw-creator/RememberDog) — 陪伴机器狗核心系统
 
 ## 📧 联系
-王承孟 | 972660369@qq.com | [GitHub](https://github.com/cmw-creator)
+王承孟 | wcm@njust.edu.cn | [GitHub](https://github.com/cmw-creator)
 
